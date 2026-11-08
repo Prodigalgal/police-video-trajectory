@@ -1,0 +1,40 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "refresh_interval": "1s"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "observation_id": {"type": "keyword"},
+      "frame_id": {"type": "keyword"},
+      "camera_id": {"type": "keyword"},
+      "target_type": {"type": "keyword"},
+      "target_id": {"type": "keyword"},
+      "track_id": {"type": "keyword"},
+      "detector_class": {"type": "keyword"},
+      "detector_confidence": {"type": "float"},
+      "association": {"type": "keyword"},
+      "bbox_xyxy": {"type": "float", "index": false},
+      "uncertain_fields": {"type": "keyword", "index": false},
+      "source_type": {"type": "keyword"},
+      "media_offset_ms": {"type": "long"},
+      "source_time_origin": {"type": "keyword"},
+      "source_time": {"type": "date"},
+      "received_at": {"type": "date"},
+      "upper_color": {"type": "text", "analyzer": "cjk"},
+      "lower_color": {"type": "text", "analyzer": "cjk"},
+      "carrying": {"type": "text", "analyzer": "cjk"},
+      "transport_type": {"type": "text", "analyzer": "cjk"},
+      "vehicle_color": {"type":"text", "analyzer":"cjk"},
+      "visible_action": {"type": "text", "analyzer": "cjk"},
+      "description": {"type": "text", "analyzer": "cjk"},
+      "model_id": {"type": "keyword"},
+      "prompt_version": {"type": "keyword"},
+      "record_version": {"type": "long"},
+      "deleted": {"type": "boolean"}
+    }
+  },
+  "aliases": {"police-video-observations": {}}
+}

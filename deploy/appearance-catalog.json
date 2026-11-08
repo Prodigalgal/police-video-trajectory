@@ -1,0 +1,37 @@
+{
+  "schema_version": "appearance-catalog-v1",
+  "revision": 1,
+  "active": "dinov2-small-int8",
+  "profiles": [
+    {
+      "profile": "dinov2-small-fp32",
+      "adapter": "onnx_crop_v1",
+      "model_file": "dinov2-small-fp32.onnx",
+      "model_sha256": "83141175ec78b4ff9a2bb58a4c7c264ba0054d1c2e122e5a8114b79a8d4179ea",
+      "dimensions": 384,
+      "normalization": "imagenet",
+      "output": "cls_token",
+      "preprocessing": "roi_letterbox_224_rgb_v1"
+    },
+    {
+      "profile": "dinov2-small-int8",
+      "adapter": "onnx_crop_v1",
+      "model_file": "dinov2-small-int8.onnx",
+      "model_sha256": "3afdc8bc63b50558d6e5770f5b799bb82455c2311183a2de43803f343a29d917",
+      "dimensions": 384,
+      "normalization": "imagenet",
+      "output": "cls_token",
+      "preprocessing": "roi_letterbox_224_rgb_v1"
+    },
+    {
+      "profile": "clip-vit-b32-int8",
+      "adapter": "onnx_crop_v1",
+      "model_file": "clip-vit-b32-int8.onnx",
+      "model_sha256": "583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299",
+      "dimensions": 512,
+      "normalization": "clip",
+      "output": "image_embeds",
+      "preprocessing": "roi_letterbox_224_rgb_v1"
+    }
+  ]
+}

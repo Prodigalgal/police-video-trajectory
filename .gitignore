@@ -1,0 +1,69 @@
+# credentials and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+kubeconfig
+*secret*.yaml
+*secret*.yml
+# local build artifacts
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+build/
+*.log
+*.tmp
+.cache/
+runtime/
+# local video / image captures: do not commit sensitive materials
+samples/*
+!samples/README.md
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.pcap
+# IDE
+.vscode/
+.idea/
+# Private operations, evaluation data and generated artifacts stay local.
+.gradle/
+private/
+docs/
+tasks/
+benchmarks/
+deploy/sydney-trial/
+AGENTS.md
+*.onnx
+*.pt
+*.sqlite*
+*.db
+*.docx
+*.pdf
+*.jar
+*.zip
+*.crt
+*.pfx
+# Only self-contained contract tests are published. Field-media evaluations stay local.
+tests/*
+!tests/test_web_gateway.py
+!tests/test_live_media.py
+!tests/test_keyword_search.py
+!tests/test_password_auth.py
+!tests/test_ai_gateway.py
+!tests/test_gateway_json_mode.py
+!tests/test_provider_profiles.py
+!tests/test_simple_accounts.py
+!tests/test_clue_api.py
+!tests/test_recorded_media_api.py
+!tests/test_processing_plugins.py
+web/tests/fixtures/
+web/tests/clue-client.test.mjs
+services/core_api/src/test/resources/fixtures/

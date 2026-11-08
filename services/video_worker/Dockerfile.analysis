@@ -1,0 +1,9 @@
+FROM python@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 ANALYSIS_ONLY_IMAGE=1
+WORKDIR /app
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    && groupadd -g 10001 app && useradd -u 10001 -g 10001 -M app
+COPY *.py /app/services/video_worker/
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "services.video_worker"]

@@ -1,0 +1,23 @@
+export const candidateStates={ready:'等待提交',active:'正在提交',waiting_source:'等待主分析结果',waiting_configuration:'等待识别配置',waiting_budget:'等待处理预算',waiting_result:'等待在途结果',waiting_review:'等待人工复核',submitted:'已登记专用任务',reused:'已引用确认结果',skipped:'无需新增识别',invalid:'来源已失效',expired:'候选已过期',failed:'提交失败'}
+export const candidatePhases={...candidateStates,lease_expired:'租约待恢复'}
+export const candidateErrors={candidate_unavailable:'候选服务暂不可用，请重新读取。',candidate_recovery_conflict:'恢复请求内容已变化，请重新读取候选。',candidate_revision_conflict:'候选状态已更新，请刷新后重试。',candidate_expired:'候选已超过有效期，请使用新的画面。',candidate_queue_full:'候选待提交数量已满，请稍后重试。',invalid_candidate_request:'候选请求无效，请检查筛选和恢复说明。'}
+const reasons={candidate_ready:'已选中牌面，等待自动提交',selection_evidence_invalid:'选择依据未通过来源校验',selected_target_missing:'所选车辆目标已不匹配',producer_lease_expired:'上一次提交中断，等待租约恢复',candidate_expired:'已超过候选处理有效期',candidate_source_missing:'对应来源记录已不可用',candidate_source_changed:'来源或选择记录已变化',main_analysis_pending:'主分析尚未完成',vehicle_observation_pending:'尚无与所选车辆对应的可核验观测',candidate_source_withdrawn:'来源观测已撤回',candidate_observation_changed:'来源观测版本已变化',specialist_not_configured:'车牌服务尚未配置',specialist_job_registered:'专用任务已登记，识别结果以该任务为准',confirmed_event_result_available:'同一连续候选片段已有确认结果，仅保留原结果引用',camera_budget_wait:'该点位处理预算暂满',event_job_pending:'同一候选片段的任务仍在处理',event_result_awaiting_review:'已有模型读号，等待人工确认',event_no_new_read_required:'当前不需要新增车牌读取',selection_policy_unavailable:'选择策略尚未就绪或已切换',selection_evidence_pending:'等待完整选择依据',selection_changed_during_admission:'准入时状态已更新，稍后重新核验',candidate_database_unavailable:'登记依赖暂不可用，等待有界恢复',candidate_submission_unavailable:'提交依赖暂不可用，等待有界恢复',candidate_contract_invalid:'候选数据未通过契约校验',manual_recovery:'已登记人工恢复',input_evidence_unavailable:'原始画面暂不可读，等待恢复',specialist_selection_budget:'该点位处理预算暂满',specialist_queue_full:'专用任务队列暂满',specialist_disabled:'专用识别已停用',specialist_module_disabled:'车牌模块已停用',processing_catalog_unavailable:'模型配置暂不可读',processing_profile_conflict:'模型版本定义存在冲突',input_source_changed:'输入来源已变化',input_manifest_changed:'输入清单校验失败',input_evidence_changed:'原图摘要已变化',observation_revision_conflict:'来源观测已有更新',input_unavailable:'输入来源已撤回',observation_unavailable:'来源观测已不可用',input_source_unavailable:'来源画面已不可用',specialist_input_changed:'任务输入已变化'}
+export function candidateReason(reason){return reasons[reason]||'提交条件暂未满足，请核验对应来源与配置'}
+const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
+function invalid(){throw new Error('候选记录不一致，请重新读取。')}
+export function validateCandidate(value,cameras){
+  if(!value||!uuid.test(value.candidate_id)||!uuid.test(value.frame_id)||!cameras.has(value.camera_id)||!Object.hasOwn(candidateStates,value.state)||!Object.hasOwn(candidatePhases,value.phase)||typeof value.reason!=='string'||!/^[a-z_]{1,80}$/.test(value.reason)||!Number.isSafeInteger(value.revision)||value.revision<1||!Number.isSafeInteger(value.failures)||value.failures<0||typeof value.can_retry!=='boolean')invalid()
+  if(value.phase!==value.state&&!(value.state==='active'&&value.phase==='lease_expired')||value.can_retry&&value.state!=='failed')invalid()
+  for(const key of ['target_id','input_id','job_id','reference_job_id'])if(value[key]!==null&&!uuid.test(value[key]))invalid()
+  if((value.state==='submitted')!==(value.job_id!==null)||(value.state==='reused')!==(value.reference_job_id!==null)||value.job_id!==null&&value.input_id===null)invalid()
+  for(const key of ['next_attempt_at','expires_at','created_at','updated_at'])if(typeof value[key]!=='string'||!Number.isFinite(Date.parse(value[key])))invalid()
+  return value
+}
+export function validateCandidatePage(value,cameras,{camera='',state='',after=null}={}){
+  if(!value||typeof value.enabled!=='boolean'||typeof value.claims_enabled!=='boolean'||!Array.isArray(value.items)||value.items.length>50||typeof value.has_more!=='boolean'||value.has_more&&(!value.items.length||value.next_cursor!==value.items.at(-1).candidate_id)||!value.has_more&&value.next_cursor!==null)invalid()
+  const policy=value.policy
+  if(!policy||!Number.isSafeInteger(policy.pending_limit)||policy.pending_limit<1||policy.pending_limit>5000||!Number.isSafeInteger(policy.batch)||policy.batch<1||policy.batch>50||policy.batch>policy.pending_limit||!Number.isSafeInteger(policy.active_limit)||policy.active_limit<1||policy.active_limit>4||!Number.isSafeInteger(policy.max_age_seconds)||policy.max_age_seconds<60||policy.max_age_seconds>86400||!Number.isSafeInteger(policy.max_failures)||policy.max_failures<1||policy.max_failures>10)invalid()
+  let previous=after
+  for(const row of value.items){validateCandidate(row,cameras);if(previous&&row.candidate_id<=previous||camera&&row.camera_id!==camera||state&&row.state!==state)invalid();previous=row.candidate_id}
+  return value
+}

@@ -1,0 +1,12 @@
+FROM python:3.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 SCENE_REQUIRED=1
+WORKDIR /app
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    && groupadd -g 10001 app && useradd -u 10001 -g 10001 -M app
+COPY worker /app/services/video_worker
+COPY scene_analysis /app/services/scene_analysis
+COPY fetch_models.py /tmp/fetch_models.py
+RUN python /tmp/fetch_models.py && chmod -R a+rX /models
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "services.video_worker"]

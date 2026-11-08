@@ -1,0 +1,9 @@
+{
+  "schema_version": "appearance-assets-v1",
+  "purpose": "local person and vehicle crop appearance retrieval; no face identification or training",
+  "assets": [
+    {"id":"dinov2-small-fp32","repo":"Xenova/dinov2-small","revision":"c2bb04a51fab207c420665f1946016107bffc701","file":"onnx/model.onnx","bytes":88459888,"sha256":"83141175ec78b4ff9a2bb58a4c7c264ba0054d1c2e122e5a8114b79a8d4179ea","dimensions":384,"normalization":"imagenet","output":"cls_token"},
+    {"id":"dinov2-small-int8","repo":"Xenova/dinov2-small","revision":"c2bb04a51fab207c420665f1946016107bffc701","file":"onnx/model_quantized.onnx","bytes":24451943,"sha256":"3afdc8bc63b50558d6e5770f5b799bb82455c2311183a2de43803f343a29d917","dimensions":384,"normalization":"imagenet","output":"cls_token"},
+    {"id":"clip-vit-b32-int8","repo":"Xenova/clip-vit-base-patch32","revision":"6b7c523703ae26e39be4b03774966f8571c7f523","file":"onnx/vision_model_quantized.onnx","bytes":89117001,"sha256":"583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299","dimensions":512,"normalization":"clip","output":"image_embeds"}
+  ]
+}

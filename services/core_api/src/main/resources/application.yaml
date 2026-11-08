@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: police-video-core
+  datasource:
+    url: ${DATABASE_URL:}
+    username: ${DATABASE_USER:}
+    password: ${DATABASE_PASSWORD:}
+  sql:
+    init:
+      mode: never
+server:
+  error:
+    include-message: never
+    include-stacktrace: never

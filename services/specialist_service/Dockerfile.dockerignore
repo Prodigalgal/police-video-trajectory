@@ -1,0 +1,6 @@
+**/__pycache__
+**/*.pyc
+runtime
+视频
+web/node_modules
+services/core_api/build
