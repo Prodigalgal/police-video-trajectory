@@ -53,6 +53,13 @@ jobs:
         run: |
           echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
           echo "tag=$(date -u +%Y%m%d)-v$(cat VERSION)-ci-${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+      - name: 发布权限预检
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.GITOPS_KNOWN_HOSTS }}
+          GITOPS_REPOSITORY: ${{ secrets.GITOPS_REPOSITORY }}
+        run: bash ci/check-gitops-access.sh
       - name: 登录镜像仓库
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
@@ -100,13 +107,16 @@ jobs:
         run: |
           key="$RUNNER_TEMP/police-video-deploy-key"
           hosts="$RUNNER_TEMP/police-video-known-hosts"
-          trap 'rm -f "$key" "$hosts"' EXIT
-          printf '%s\n' "$DEPLOY_KEY" > "$key"
-          printf '%s\n' "$KNOWN_HOSTS" > "$hosts"
+          gitops="$RUNNER_TEMP/police-video-gitops"
+          trap 'rm -f "$key" "$hosts"; rm -rf "$gitops"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' > "$key"
+          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > "$hosts"
           chmod 600 "$key" "$hosts"
           export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$hosts"
-          git clone --depth 1 "$GITOPS_REPOSITORY" "$RUNNER_TEMP/gitops"
-          cd "$RUNNER_TEMP/gitops"
+          echo "::add-mask::${GITOPS_REPOSITORY#git@}"
+          echo "::add-mask::${GITOPS_REPOSITORY#git@github.com:}"
+          git clone --depth 1 "$GITOPS_REPOSITORY" "$gitops"
+          cd "$gitops"
           git config user.name 'police-video-release'
           git config user.email 'police-video-release@users.noreply.github.com'
           for attempt in 1 2 3; do
