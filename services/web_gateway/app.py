@@ -70,6 +70,7 @@ def create_app(config=None, transport=None):
         "live_media_ca":os.getenv("WEB_LIVE_MEDIA_CA_FILE",""),
         "live_media_user":os.getenv("WEB_LIVE_MEDIA_USERNAME",""),
         "live_media_password":os.getenv("WEB_LIVE_MEDIA_PASSWORD",""),
+        "live_media_bearer":os.getenv("WEB_LIVE_MEDIA_BEARER",""),
         "live_camera_paths":os.getenv("WEB_LIVE_CAMERA_PATHS_JSON","{}"),
         "appearance_catalog_file":os.getenv("APPEARANCE_CATALOG_FILE","/appearance-catalog/catalog.json"),
         "appearance_model_dir":os.getenv("APPEARANCE_MODEL_DIR","/appearance-models"),

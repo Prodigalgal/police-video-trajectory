@@ -105,8 +105,10 @@ def mount_live(app, cfg, authenticated):
             await asyncio.wait_for(media.slots.acquire(), timeout=1)
             acquired = True
             path = media.paths()[camera]
+            bearer = cfg.get('live_media_bearer', '')
             async with media.client.stream('GET', cfg['live_media_url'].rstrip('/')+f'/{path}/{asset}',
-                                           auth=(cfg.get('live_media_user', ''), cfg.get('live_media_password', ''))) as upstream:
+                                           headers={'Authorization': 'Bearer '+bearer} if bearer else {},
+                                           auth=None if bearer else (cfg.get('live_media_user', ''), cfg.get('live_media_password', ''))) as upstream:
                 if upstream.status_code != 200:
                     raise HTTPException(503, '监控正在连接，请稍后重试')
                 limit = 131072 if asset.endswith('.m3u8') else 12*1024*1024

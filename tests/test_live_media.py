@@ -58,3 +58,17 @@ def test_live_rejects_redirects_without_exposing_location_and_recovers_next_requ
         assert client.get('/api/v1/live/cameras/camera-1/hls/seg1.mp4').content==b'segment bytes'
         client.delete('/api/session',headers={'Origin':ORIGIN})
         assert client.get('/api/v1/live/cameras/camera-1/hls/seg1.mp4').status_code==401
+
+
+def test_proxy_token_stays_server_side_and_does_not_share_media_sessions_with_browser():
+    config=settings();config['live_media_bearer']='test-live-proxy-token'
+    def upstream(request):
+        if request.url.host=='core.invalid':return httpx.Response(200,json={'items':[{'camera_id':'camera-1','display_name':'一号点位'}]})
+        assert request.headers['authorization']=='Bearer test-live-proxy-token'
+        assert 'cookie' not in request.headers
+        return httpx.Response(200,content=b'#EXTM3U\nseg1.mp4\n')
+    with TestClient(create_app(config,httpx.MockTransport(upstream)),base_url=ORIGIN) as client:
+        client.post('/api/session',headers={'Origin':ORIGIN},json={'token':'test-browser'})
+        response=client.get('/api/v1/live/cameras/camera-1/hls/index.m3u8')
+        assert response.status_code==200 and 'test-live-proxy-token' not in response.text
+        assert 'set-cookie' not in response.headers
