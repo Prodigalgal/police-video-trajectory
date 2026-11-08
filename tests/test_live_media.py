@@ -72,3 +72,25 @@ def test_proxy_token_stays_server_side_and_does_not_share_media_sessions_with_br
         response=client.get('/api/v1/live/cameras/camera-1/hls/index.m3u8')
         assert response.status_code==200 and 'test-live-proxy-token' not in response.text
         assert 'set-cookie' not in response.headers
+
+
+def test_high_bitrate_segments_stream_and_oversized_headers_fail_before_body():
+    class Segment(httpx.AsyncByteStream):
+        def __init__(self):self.closed=False
+        async def __aiter__(self):
+            for _ in range(208):yield b'x'*65536
+        async def aclose(self):self.closed=True
+    streams=[];oversized=False
+    def upstream(request):
+        if request.url.host=='core.invalid':return httpx.Response(200,json={'items':[{'camera_id':'camera-1','display_name':'一号点位'}]})
+        stream=Segment();streams.append(stream)
+        return httpx.Response(200,stream=stream,headers={'content-length':str(64*1024*1024+1 if oversized else 208*65536)})
+    with TestClient(create_app(settings(),httpx.MockTransport(upstream)),base_url=ORIGIN) as client:
+        client.post('/api/session',headers={'Origin':ORIGIN},json={'token':'test-browser'})
+        url='/api/v1/live/cameras/camera-1/hls/segment.mp4'
+        response=client.get(url)
+        assert response.status_code==200 and len(response.content)==208*65536 and streams[-1].closed
+        oversized=True
+        assert client.get(url).status_code==503 and streams[-1].closed
+        oversized=False
+        assert client.get(url).status_code==200 and streams[-1].closed

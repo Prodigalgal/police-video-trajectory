@@ -1,4 +1,4 @@
--- Application version: 0.21.7. Dedicated OCR contracts; no observations or index mutations.
+-- Application version: 0.21.8. Dedicated OCR contracts; no observations or index mutations.
 CREATE TABLE IF NOT EXISTS specialist_analysis_jobs (
  job_id uuid PRIMARY KEY,input_id uuid NOT NULL REFERENCES analysis_inputs(input_id),
  input_manifest_sha256 text NOT NULL CHECK(input_manifest_sha256 ~ '^[a-f0-9]{64}$'),

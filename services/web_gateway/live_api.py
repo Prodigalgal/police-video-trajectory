@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 ASSET = re.compile(r'[A-Za-z0-9_-]{1,160}\.(?:m3u8|mp4|m4s|ts)\Z')
 CAMERA = re.compile(r'[A-Za-z0-9_-]{1,100}\Z')
@@ -101,34 +103,72 @@ def mount_live(app, cfg, authenticated):
             raise HTTPException(422, '播放片段参数无效')
         media = app.state.live_media
         acquired = False
+        context = None
+        transferred = False
+        closed = False
+
+        async def close():
+            nonlocal closed
+            if closed:
+                return
+            closed = True
+            try:
+                if context is not None:
+                    await context.__aexit__(None, None, None)
+            finally:
+                if acquired:
+                    media.slots.release()
+
         try:
             await asyncio.wait_for(media.slots.acquire(), timeout=1)
             acquired = True
             path = media.paths()[camera]
             bearer = cfg.get('live_media_bearer', '')
-            async with media.client.stream('GET', cfg['live_media_url'].rstrip('/')+f'/{path}/{asset}',
-                                           headers={'Authorization': 'Bearer '+bearer} if bearer else {},
-                                           auth=None if bearer else (cfg.get('live_media_user', ''), cfg.get('live_media_password', ''))) as upstream:
-                if upstream.status_code != 200:
-                    raise HTTPException(503, '监控正在连接，请稍后重试')
-                limit = 131072 if asset.endswith('.m3u8') else 12*1024*1024
+            context = media.client.stream('GET', cfg['live_media_url'].rstrip('/')+f'/{path}/{asset}',
+                                          headers={'Authorization': 'Bearer '+bearer} if bearer else {},
+                                          auth=None if bearer else (cfg.get('live_media_user', ''), cfg.get('live_media_password', '')))
+            upstream = await context.__aenter__()
+            if upstream.status_code != 200:
+                raise HTTPException(503, '监控正在连接，请稍后重试')
+            if asset.endswith('.m3u8'):
                 body = bytearray()
                 async for chunk in upstream.aiter_bytes():
                     body.extend(chunk)
-                    if len(body) > limit:
+                    if len(body) > 131072:
                         raise ValueError('media response exceeded bound')
                 if not body:
                     raise ValueError('empty media response')
-                if asset.endswith('.m3u8'):
-                    body = rewrite_playlist(bytes(body), camera)
-                    content_type = 'application/vnd.apple.mpegurl'
-                else:
-                    content_type = 'video/mp2t' if asset.endswith('.ts') else 'video/mp4'
-                return Response(bytes(body), media_type=content_type, headers={'Cache-Control': 'no-store'})
+                return Response(rewrite_playlist(bytes(body), camera), media_type='application/vnd.apple.mpegurl',
+                                headers={'Cache-Control': 'no-store'})
+            limit = 64*1024*1024
+            declared = upstream.headers.get('content-length')
+            if declared is not None and (not re.fullmatch(r'[0-9]{1,10}', declared) or not 0 < int(declared) <= limit):
+                raise ValueError('bounded media segment required')
+
+            async def chunks():
+                received = 0
+                try:
+                    async for chunk in upstream.aiter_bytes(64*1024):
+                        received += len(chunk)
+                        if received > limit:
+                            raise RuntimeError('live media exceeded its transfer bound')
+                        yield chunk
+                    if received == 0 or declared is not None and received != int(declared):
+                        raise RuntimeError('live media transfer was incomplete')
+                finally:
+                    await close()
+
+            response_headers = {'Cache-Control': 'no-store'}
+            if declared is not None:
+                response_headers['Content-Length'] = declared
+            response = StreamingResponse(chunks(), media_type='video/mp2t' if asset.endswith('.ts') else 'video/mp4',
+                                         headers=response_headers, background=BackgroundTask(close))
+            transferred = True
+            return response
         except TimeoutError:
             raise HTTPException(429, '观看请求较多，请稍后重试', headers={'Retry-After': '2'}) from None
         except (httpx.HTTPError, ValueError, UnicodeError, KeyError):
             raise HTTPException(503, '监控连接暂时中断，请重新连接') from None
         finally:
-            if acquired:
-                media.slots.release()
+            if not transferred:
+                await close()
