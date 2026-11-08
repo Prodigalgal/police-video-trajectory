@@ -1,4 +1,4 @@
--- Application version: 0.21.3. Additive; does not enqueue inference or alter existing observations.
+-- Application version: 0.21.4. Additive; does not enqueue inference or alter existing observations.
 CREATE INDEX IF NOT EXISTS capture_outbox_context_idx
     ON capture_outbox(task_id,scene_run_id,media_epoch,relative_media_ms,frame_id);
 CREATE TABLE IF NOT EXISTS analysis_inputs (

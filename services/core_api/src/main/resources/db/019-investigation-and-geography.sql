@@ -1,4 +1,4 @@
--- Application version: 0.21.3. Additive investigation/geography contracts.
+-- Application version: 0.21.4. Additive investigation/geography contracts.
 CREATE TABLE IF NOT EXISTS camera_locations (
  camera_id text PRIMARY KEY REFERENCES cameras(camera_id),
  longitude double precision,latitude double precision,

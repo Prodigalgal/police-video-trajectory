@@ -59,7 +59,6 @@ tests/*
 !tests/test_password_auth.py
 !tests/test_ai_gateway.py
 !tests/test_gateway_json_mode.py
-!tests/test_provider_profiles.py
 !tests/test_simple_accounts.py
 !tests/test_clue_api.py
 !tests/test_recorded_media_api.py
