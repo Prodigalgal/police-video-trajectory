@@ -1,4 +1,4 @@
--- Application version: 0.21.2. Additive recording enrichment; no inference or index work.
+-- Application version: 0.21.3. Additive recording enrichment; no inference or index work.
 CREATE TABLE IF NOT EXISTS stream_recording_segments (
     segment_id uuid PRIMARY KEY,
     storage_namespace text NOT NULL CHECK(storage_namespace ~ '^[a-f0-9]{32}$'),
