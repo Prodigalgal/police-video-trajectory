@@ -52,7 +52,7 @@ async def describe_target(cfg,metadata,image,budget):
             for field in described.uncertain_fields:attributes[field]=[] if field=='carrying' else None
             for field in (('vehicle_color','transport_type') if metadata.target_type=='person' else ('upper_color','lower_color','carrying')):attributes[field]=[] if field=='carrying' else None
             model=value.get('returned_model') or value.get('configured_model')
-            if not isinstance(model,str) or not 1<=len(model)<=200 or value.get('prompt_version')!='appearance-description-v1':raise ValueError('semantic model binding differs')
+            if not isinstance(model,str) or not 1<=len(model)<=200 or value.get('prompt_version') not in {'appearance-description-v1','appearance-description-zh-v2'}:raise ValueError('semantic model binding differs')
             return {'state':'completed','attributes':attributes,'uncertain_fields':described.uncertain_fields,'model_id':model,'prompt_version':value['prompt_version']}
     except (TimeoutError,httpx.TimeoutException):return outcome('timeout')
     except (httpx.HTTPError,OSError,ValueError,KeyError,TypeError):

@@ -67,6 +67,7 @@ def create_app(config=None, transport=None):
         "appearance":os.getenv("WEB_APPEARANCE_ENABLED","false")=="true",
         "live_view":os.getenv("WEB_LIVE_VIEW_ENABLED","false")=="true",
         "recording_review":os.getenv("WEB_RECORDING_REVIEW_ENABLED","false")=="true",
+        "processing_trace":os.getenv("WEB_PROCESSING_TRACE_ENABLED","false")=="true",
         "live_media_url":os.getenv("WEB_LIVE_MEDIA_URL",""),
         "live_media_ca":os.getenv("WEB_LIVE_MEDIA_CA_FILE",""),
         "live_media_user":os.getenv("WEB_LIVE_MEDIA_USERNAME",""),
@@ -451,6 +452,8 @@ def create_app(config=None, transport=None):
     mount_live(app,cfg,authenticated)
     from .recording_review_api import mount_recording_review
     mount_recording_review(app,cfg,authenticated,origin_ok)
+    from .processing_trace_api import mount_processing_trace
+    mount_processing_trace(app,cfg,authenticated,origin_ok)
 
     @app.get('/api/v1/features')
     async def features(request:Request):
@@ -466,6 +469,7 @@ def create_app(config=None, transport=None):
         if directory and cfg.get('appearance'):result['appearance']=True
         if cfg.get('live_view'):result['live_view']=True
         if directory and cfg.get('recording_review'):result['recording_review']=True
+        if directory and cfg.get('processing_trace'):result['processing_trace']=True
         return result
 
     if cfg.get('evaluation_root'):

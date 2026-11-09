@@ -26,7 +26,9 @@ public class TargetPipeline {
     public record TargetResult(UUID targetId, String objectType, Boolean visible, Map<String,Object> attributes,
                                String description, List<String> uncertainFields) {}
     public record Completion(UUID jobId, String workerId, long generation, String modelId, String promptVersion,
-                             List<TargetResult> targets, List<ObservationStore.VisibleObject> additionalObjects, String sceneDescription) {}
+                             List<TargetResult> targets, List<ObservationStore.VisibleObject> additionalObjects, String sceneDescription,Map<String,Object> inferenceReceipt) {
+        public Completion(UUID jobId,String workerId,long generation,String modelId,String promptVersion,List<TargetResult> targets,List<ObservationStore.VisibleObject> additionalObjects,String sceneDescription){this(jobId,workerId,generation,modelId,promptVersion,targets,additionalObjects,sceneDescription,null);}
+    }
     private final JdbcTemplate db;
     private final AnalysisQueue queue;
     private final ObservationStore observations;
@@ -218,6 +220,7 @@ public class TargetPipeline {
     public int complete(Completion item) {
         if(item==null || item.targets()==null || item.targets().size()>100 || item.additionalObjects()==null || item.additionalObjects().size()>100 ||
                 (item.sceneDescription()!=null && item.sceneDescription().length()>500)) throw new IllegalArgumentException("invalid module result");
+        cn.trial.videosearch.attributes.ChineseSemantics.requireText(item.sceneDescription());
         modules.lockAdmission();
         var rows=db.queryForList("SELECT f.frame_id,(c.plan->>'image_width')::integer AS image_width,(c.plan->>'image_height')::integer AS image_height FROM analysis_jobs j JOIN frames f ON f.frame_id=j.frame_id JOIN capture_outbox c ON c.frame_id=f.frame_id WHERE j.job_id=? AND j.lease_owner=? AND j.lease_generation=? AND ((j.state='active' AND j.lease_expires_at>clock_timestamp()) OR j.state='completed') FOR UPDATE OF j",item.jobId(),item.workerId(),item.generation());
         if(rows.size()!=1) throw new IllegalStateException("module lease expired");
@@ -249,6 +252,12 @@ public class TargetPipeline {
         }
         if(objects.size()>100) throw new IllegalArgumentException("too many output objects");
         int count=observations.completeBound(new ObservationStore.AnalysisResult(item.jobId(),item.workerId(),item.generation(),item.modelId(),item.promptVersion(),objects));
+        if(item.inferenceReceipt()!=null){
+            String image=db.queryForObject("SELECT payload_sha256 FROM capture_outbox WHERE frame_id=?",String.class,frameId);
+            var response=InferenceReceipts.validate(item.inferenceReceipt(),image,item.modelId(),item.promptVersion());
+            InferenceReceipts.matchTargets(response,item);
+            observations.storeReceipt(frameId,item.inferenceReceipt());
+        }
         modules.enqueue(frameId,item);
         return count;
     }

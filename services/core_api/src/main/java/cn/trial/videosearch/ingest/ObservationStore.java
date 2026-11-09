@@ -2,6 +2,7 @@ package cn.trial.videosearch.ingest;
 
 import cn.trial.videosearch.attributes.ColorTerms;
 import cn.trial.videosearch.attributes.UncertaintyTerms;
+import cn.trial.videosearch.attributes.ChineseSemantics;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -27,7 +28,9 @@ public class ObservationStore {
                         Long mediaOffsetMs, Instant sourceTime, String modelId, String promptVersion,
                         List<VisibleObject> objects) {}
     public record AnalysisResult(UUID jobId, String workerId, long generation, String modelId, String promptVersion,
-                                 List<VisibleObject> objects) {}
+                                 List<VisibleObject> objects,Map<String,Object> inferenceReceipt) {
+        public AnalysisResult(UUID jobId,String workerId,long generation,String modelId,String promptVersion,List<VisibleObject> objects){this(jobId,workerId,generation,modelId,promptVersion,objects,null);}
+    }
     private static final Set<String> ATTRIBUTE_FIELDS = Set.of("upper_color", "lower_color", "vehicle_color", "carrying", "visible_action", "transport_type");
     private final JdbcTemplate db;
     private final ObjectMapper json = new ObjectMapper();
@@ -182,6 +185,13 @@ public class ObservationStore {
         }
         int count = persistObjects(frame, (String) row.get("camera_id"), (String) row.get("source_time_origin"),
                 (String) row.get("source_type"), (Timestamp) row.get("received_at"));
+        if(result.inferenceReceipt()!=null){
+            var captures=db.queryForList("SELECT payload_sha256 FROM capture_outbox WHERE frame_id=?",frame.frameId());
+            String image=captures.isEmpty()?(String)result.inferenceReceipt().get("image_sha256"):(String)captures.getFirst().get("payload_sha256");
+            if(image==null||!image.matches("[0-9a-f]{64}"))throw new IllegalArgumentException("识别回执缺少输入摘要");
+            var response=InferenceReceipts.validate(result.inferenceReceipt(),image,result.modelId(),result.promptVersion());
+            InferenceReceipts.matchObjects(response,result.objects());storeReceipt(frame.frameId(),result.inferenceReceipt());
+        }
         if (!completed) {
             int live = db.update("""
                     UPDATE analysis_jobs SET state='completed', updated_at=clock_timestamp() WHERE job_id=? AND state='active'
@@ -191,6 +201,19 @@ public class ObservationStore {
             db.update("UPDATE frames SET analysis_state='completed' WHERE frame_id=?", frame.frameId());
         }
         return count;
+    }
+
+    void storeReceipt(UUID frame,Map<String,Object> receipt){
+        var metadata=new LinkedHashMap<>(receipt);
+        for(String kind:List.of("request","response","schema")){
+            String content=(String)metadata.remove(kind+"_json");Object digest=receipt.get(kind+"_sha256");
+            db.update("INSERT INTO analysis_artifacts(artifact_sha256,content,content_bytes) VALUES(?,?,?) ON CONFLICT(artifact_sha256) DO NOTHING",digest,content,content.getBytes(StandardCharsets.UTF_8).length);
+            if(!content.equals(db.queryForObject("SELECT content FROM analysis_artifacts WHERE artifact_sha256=?",String.class,digest)))throw new IllegalStateException("识别归档内容与摘要冲突");
+        }
+        var encoded=cn.trial.videosearch.support.CanonicalJson.encode(metadata,InferenceReceipts.MAX_BYTES);
+        db.update("INSERT INTO frame_analysis_receipts(frame_id,request_sha256,response_sha256,schema_sha256,receipt_sha256,receipt) VALUES(?,?,?,?,?,?::jsonb) ON CONFLICT(frame_id) DO NOTHING",frame,receipt.get("request_sha256"),receipt.get("response_sha256"),receipt.get("schema_sha256"),receipt.get("receipt_sha256"),encoded.payload());
+        var stored=db.queryForMap("SELECT request_sha256,response_sha256,schema_sha256 FROM frame_analysis_receipts WHERE frame_id=?",frame);
+        for(String kind:List.of("request","response","schema"))if(!java.util.Objects.equals(stored.get(kind+"_sha256"),receipt.get(kind+"_sha256")))throw new IllegalStateException("识别回执与已保存结果冲突");
     }
 
     /** A persistent indexed tombstone prevents delayed older events from resurrecting deleted records. */
@@ -232,6 +255,8 @@ public class ObservationStore {
         if (object == null || object.objectType() == null || !Set.of("person", "vehicle").contains(object.objectType()) ||
                 (object.description() != null && object.description().length() > 500)) throw new IllegalArgumentException("invalid object");
         normalizedAttributes(object.attributes());
+        ChineseSemantics.requireText(object.description());
+        ChineseSemantics.requireAttributes(object.attributes());
         if ("person".equals(object.objectType()) && object.attributes().get("vehicle_color") != null)
             throw new IllegalArgumentException("vehicle color cannot describe a person");
         validateBoundingBox(object.bboxXyxy());

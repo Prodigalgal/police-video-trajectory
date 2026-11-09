@@ -1,3 +1,4 @@
+import WorkspaceHeader from './WorkspaceHeader.jsx'
 import React,{useEffect,useRef,useState} from 'react'
 import {Login} from './App.jsx'
 import {FloatingNotice,InfoBubble} from './Feedback.jsx'
@@ -47,25 +48,30 @@ function LivePlayer({camera,quality,onUnauthenticated}){
 
 export default function LiveMonitoring(){
   const [authenticated,setAuthenticated]=useState(null),[cameras,setCameras]=useState([]),[selected,setSelected]=useState(()=>new URLSearchParams(location.search).get('camera')||''),[error,setError]=useState(''),[attempt,setAttempt]=useState(0)
-  const [quality,setQuality]=useState('preview')
+  const [quality,setQuality]=useState('preview'),[layout,setLayout]=useState('single'),[gridIds,setGridIds]=useState([]),[isAdmin,setIsAdmin]=useState(false)
   function unauthenticated(){setAuthenticated(false);setCameras([]);setSelected('')}
   useEffect(()=>{
     const controller=new AbortController();setError('')
     async function load(){
       const session=await fetch('/api/session',{signal:controller.signal}).then(response=>response.json())
-      if(!session.authenticated){unauthenticated();return}setAuthenticated(true)
+      if(!session.authenticated){unauthenticated();return}setAuthenticated(true);setIsAdmin(session.is_admin===true)
       const response=await fetch('/api/v1/live/cameras',{signal:controller.signal,cache:'no-store'})
       if(response.status===401){unauthenticated();return}
       if(!response.ok)throw new Error(response.status===404?'实时监控尚未启用。':'监控目录读取失败，请重试。')
       const value=await response.json()
       if(!Array.isArray(value.items)||value.items.length>128||value.items.some(row=>typeof row.camera_id!=='string'||typeof row.display_name!=='string'))throw new Error('监控目录无效，请重试。')
       if(controller.signal.aborted)return
-      setCameras(value.items);setSelected(current=>value.items.some(row=>row.camera_id===current)?current:value.items[0]?.camera_id||'')
+      setCameras(value.items);setGridIds(current=>{const valid=current.filter(id=>value.items.some(camera=>camera.camera_id===id));return valid.length?valid:value.items.slice(0,4).map(camera=>camera.camera_id)});setSelected(current=>value.items.some(row=>row.camera_id===current)?current:value.items[0]?.camera_id||'')
     }
     load().catch(problem=>{if(problem.name!=='AbortError')setError(chineseMessage(problem.message))})
     return()=>controller.abort()
   },[attempt,authenticated===false])
   if(authenticated===false)return <Login onLogin={()=>{setAuthenticated(true);setAttempt(value=>value+1)}}/>
   const camera=cameras.find(row=>row.camera_id===selected)
-  return <div className="app"><header className="topbar"><a className="text-button" href="/">返回检索</a><div className="header-tools"><h1>实时监控</h1><InfoBubble title="观看说明">选择点位观看实时画面。默认使用低码率流畅预览，原画需要更高带宽。切换点位或离开页面会停止当前播放。</InfoBubble></div></header><main className="live-main"><div className="admin-section-title"><label>监控点位<select value={selected} onChange={event=>setSelected(event.target.value)} disabled={!cameras.length}>{cameras.map(row=><option key={row.camera_id} value={row.camera_id}>{row.display_name}</option>)}</select></label><label>观看画质<select value={camera?.preview_available?quality:'hls'} disabled={!camera?.preview_available} onChange={event=>setQuality(event.target.value)}><option value="preview">流畅预览</option><option value="hls">原画</option></select></label><button className="text-button" type="button" onClick={()=>setAttempt(value=>value+1)}>刷新点位</button></div>{error&&<FloatingNotice role="alert" className="notice error">{error}</FloatingNotice>}{authenticated===null&&!error&&<p role="status">正在验证登录…</p>}{camera?<LivePlayer key={camera.camera_id} camera={camera} quality={camera.preview_available?quality:'hls'} onUnauthenticated={unauthenticated}/>:authenticated&&!error&&<p>暂无可观看的监控点位。</p>}</main></div>
+  const displayed=layout==='grid'?cameras.filter(row=>gridIds.includes(row.camera_id)):camera?[camera]:[]
+  function choose(cameraId){
+    if(layout==='single'){setSelected(cameraId);return}
+    setGridIds(current=>current.includes(cameraId)?current.filter(id=>id!==cameraId):current.length<4?[...current,cameraId]:current)
+  }
+  return <div className="app"><WorkspaceHeader active="live" isAdmin={isAdmin}/><main className="live-main"><div className="admin-section-title"><div className="live-title"><h1>实时监控</h1><span className="admin-muted">已选择 {displayed.length} 个点位</span><InfoBubble title="观看说明">选择点位观看实时画面。切换点位或离开页面会停止原播放，四画面最多同时观看四个点位。</InfoBubble></div><div className="segmented-control" aria-label="画面布局"><button type="button" aria-pressed={layout==='single'} onClick={()=>setLayout('single')}>单画面</button><button type="button" aria-pressed={layout==='grid'} onClick={()=>setLayout('grid')}>四画面</button></div><button className="admin-button secondary" type="button" onClick={()=>setAttempt(value=>value+1)}>刷新点位</button></div>{error&&<FloatingNotice role="alert" className="notice error">{error}</FloatingNotice>}{authenticated===null&&!error&&<p role="status">正在验证登录…</p>}<div className="live-workspace"><aside className="admin-card live-camera-list"><h2>点位选择</h2>{cameras.map(row=><label key={row.camera_id} className={displayed.some(value=>value.camera_id===row.camera_id)?'is-selected':''}><input type={layout==='grid'?'checkbox':'radio'} name="live-camera" checked={displayed.some(value=>value.camera_id===row.camera_id)} disabled={layout==='grid'&&gridIds.length>=4&&!gridIds.includes(row.camera_id)} onChange={()=>choose(row.camera_id)}/><span>{row.display_name}</span></label>)}</aside><section className="live-stage" aria-label="监控画面"><div className={layout==='grid'?'live-grid':'live-single'}>{displayed.map(row=><LivePlayer key={row.camera_id} camera={row} quality={row.preview_available?quality:'hls'} onUnauthenticated={unauthenticated}/>)}</div>{!displayed.length&&authenticated&&!error&&<div className="admin-empty">请选择可观看的监控点位。</div>}<div className="live-quality"><label>观看画质<select value={quality} onChange={event=>setQuality(event.target.value)}><option value="preview">流畅预览</option><option value="hls">原画</option></select></label><InfoBubble title="画质说明">流畅预览使用已有的低码率通道；未配置预览的点位使用原画。播放状态以各画面实时返回为准。</InfoBubble></div></section></div></main></div>
 }

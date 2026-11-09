@@ -15,13 +15,14 @@ from .config import ModelConfig, Settings
 from .errors import GatewayError, CallDiagnostics, active_diagnostics, response_error, upstream_code
 from .result_cache import CacheBusy, CacheUnavailable, ResultCache
 from .tool_output import read_tool_result, result_tool, RESULT_INSTRUCTIONS
+from .inference_receipt import make_receipt
 
 
 def validation_issue(error: ValidationError) -> str:
     # Only bounded Pydantic error types are retained; never log model output or values.
     allowed = {"json_invalid", "extra_forbidden", "literal_error", "missing", "list_type", "dict_type",
                "string_type", "string_too_long", "string_too_short", "tuple_type", "too_long", "too_short",
-               "float_type", "float_parsing", "value_error"}
+               "float_type", "float_parsing", "value_error", "chinese_semantics"}
     codes = {item.get("type") for item in error.errors(include_input=False, include_url=False)}
     return next((code for code in sorted(codes & allowed)), "other")
 
@@ -150,14 +151,15 @@ class ModelClient:
 
     async def run(self, config: ModelConfig, prompt: str, result_model: type[BaseModel], image_data_url: str | None = None,
                   *, image_bytes: bytes | None = None, media_type: str = 'image/jpeg', timeout_seconds: float | None = None,
-                  validate_result=None):
+                  validate_result=None,prompt_version=None):
         vision = image_data_url is not None or image_bytes is not None
         if not vision or self.result_cache is None:
             result,metadata = await self._run_uncached(config,prompt,result_model,image_data_url,image_bytes=image_bytes,
                                                       media_type=media_type,timeout_seconds=timeout_seconds)
             if validate_result is not None:
                 validate_result(result)
-            return result,metadata
+            receipt=make_receipt(config,prompt,prompt_version,result,metadata,image_bytes,timeout_seconds or self.settings.timeout_seconds)
+            return result,{**metadata,'inference_receipt':receipt}
         started = time.monotonic()
         budget = self.settings.timeout_seconds if timeout_seconds is None else min(self.settings.timeout_seconds,timeout_seconds)
         if budget<=0:
@@ -167,7 +169,7 @@ class ModelClient:
                    'model_binding':config.binding_id,
                    'protocol':config.style,'json_mode':config.json_mode,'transport':config.image_transport,
                    'credential_revision':hashlib.sha256(config.api_key.encode()).hexdigest(),
-                   'prompt':prompt,'schema':result_model.model_json_schema(),'media_type':media_type,'image_sha256':image_hash}
+                   'prompt':prompt,'prompt_version':prompt_version,'schema':result_model.model_json_schema(),'media_type':media_type,'image_sha256':image_hash}
         if config.output_mode != 'text':
             binding.update(output_mode=config.output_mode,output_instructions=RESULT_INSTRUCTIONS,
                            output_tool=result_tool(config.style,result_model.model_json_schema()))
@@ -201,6 +203,7 @@ class ModelClient:
                                          media_type=media_type,timeout_seconds=remaining)
             if validate_result is not None:
                 validate_result(result)
+            metadata={**metadata,'inference_receipt':make_receipt(config,prompt,prompt_version,result,metadata,image_bytes,budget)}
             validated = True
             # Commit before replying. A worker/backend restart can replay the
             # identical request without paying for another upstream analysis.
@@ -245,7 +248,8 @@ class ModelClient:
             try:
                 result = result_model.model_validate_json(text)
             except ValidationError as error:
-                raise diagnostics.apply(GatewayError("模型结果不符合结构化契约", validation_issue=validation_issue(error))) from None
+                issue=validation_issue(error)
+                raise diagnostics.apply(GatewayError("模型识别语义必须使用中文" if issue=='chinese_semantics' else "模型结果不符合结构化契约", validation_issue=issue)) from None
             except (ValueError, TypeError):
                 raise GatewayError("模型结果不符合结构化契约") from None
             returned_model = payload.get("model") if isinstance(payload, dict) else None

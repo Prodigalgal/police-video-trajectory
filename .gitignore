@@ -69,6 +69,8 @@ tests/*
 !tests/test_usability_gitops.py
 !tests/test_managed_models.py
 !tests/test_midstream_gitops.py
+!tests/test_inference_receipt.py
+!tests/test_processing_trace_api.py
 web/tests/fixtures/
 web/tests/clue-client.test.mjs
 services/core_api/src/test/resources/fixtures/

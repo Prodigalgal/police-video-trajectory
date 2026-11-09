@@ -46,11 +46,11 @@ export default function PasswordLogin({ onLogin, context, Brand, responseJson })
       setPassword(''); onLogin(session)
     } catch (e) { setError(chineseMessage(e.message)); await refresh() } finally { setBusy(false) }
   }
-  return <main className="access-wrap"><section className="access-card"><Brand/><div className="access-copy"><p className="eyebrow">受控访问</p><h1>登录视迹</h1><p>登录后进入{context === 'evaluation' ? '评测工作台' : context === 'admin' ? '管理后台' : '视频线索搜索'}。</p></div><form onSubmit={submit}>
+  return <main className="access-wrap"><section className="access-card"><Brand/><div className="access-copy"><p className="eyebrow">受控访问</p><h1>登录视迹</h1><p>{context === 'evaluation' ? '评测工作台' : context === 'admin' ? '管理后台' : '视频线索工作台'}</p></div><form onSubmit={submit}>
     <label htmlFor="username">用户名</label><input id="username" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} maxLength={80} required disabled={busy}/>
     <label htmlFor="password">密码</label><input id="password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} maxLength={128} required disabled={busy}/>
-    <div className="verification-heading"><label htmlFor="captcha">数学验证码{challenge ? `：${challenge.question}` : ''}</label><button className="text-button" type="button" onClick={refresh} disabled={busy}>换一题</button></div>
-    <input id="captcha" inputMode="numeric" autoComplete="off" value={answer} onChange={e => setAnswer(e.target.value)} maxLength={8} required disabled={busy || !challenge} aria-describedby="verification-status"/>
+    <div className="verification-heading"><label htmlFor="captcha">验证码</label><button className="text-button" type="button" onClick={refresh} disabled={busy}>换一题</button></div>
+    <div className="captcha-row"><input id="captcha" inputMode="numeric" autoComplete="off" value={answer} onChange={e => setAnswer(e.target.value)} maxLength={8} required disabled={busy || !challenge} aria-describedby="verification-status"/><span className="captcha-question">{challenge?.question||'正在读取…'}</span></div>
     <span id="verification-status" className="login-verification" role="status">{verificationError?'校验待重试':proof?'安全校验已完成':'安全校验中…'}</span>{verificationError&&<FloatingNotice kind="error">{verificationError}</FloatingNotice>}
     <button className="primary" type="submit" disabled={busy || !challenge || !proof || !answer.trim()}>{busy ? '正在登录…' : '登录'}</button>
     {error && <FloatingNotice className="error" role="alert">{error}</FloatingNotice>}

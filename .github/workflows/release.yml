@@ -45,7 +45,7 @@ jobs:
         run: |
           /tmp/gradle-9.1.0/bin/gradle -p services/core_api --no-daemon test bootJar
           node --test --test-reporter=dot web/tests/*.test.mjs
-          /tmp/contracts/bin/python -m pytest -q tests/test_web_gateway.py tests/test_live_media.py tests/test_keyword_search.py tests/test_password_auth.py tests/test_ai_gateway.py tests/test_gateway_json_mode.py tests/test_simple_accounts.py tests/test_clue_api.py tests/test_recorded_media_api.py tests/test_processing_plugins.py tests/test_recording_review_api.py tests/test_capture_handoff.py tests/test_usability_api.py tests/test_usability_gitops.py tests/test_managed_models.py tests/test_midstream_gitops.py
+          /tmp/contracts/bin/python -m pytest -q tests/test_web_gateway.py tests/test_live_media.py tests/test_keyword_search.py tests/test_password_auth.py tests/test_ai_gateway.py tests/test_gateway_json_mode.py tests/test_simple_accounts.py tests/test_clue_api.py tests/test_recorded_media_api.py tests/test_processing_plugins.py tests/test_recording_review_api.py tests/test_capture_handoff.py tests/test_usability_api.py tests/test_usability_gitops.py tests/test_managed_models.py tests/test_midstream_gitops.py tests/test_inference_receipt.py tests/test_processing_trace_api.py
           npm run build --prefix web
           python3 deploy/check-version-contract.py --web-dist --jar "services/core_api/build/libs/police-video-core-api-$(cat VERSION).jar"
       - name: 确定不可变版本

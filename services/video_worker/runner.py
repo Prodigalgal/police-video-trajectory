@@ -206,6 +206,7 @@ async def process_analysis_job(core: JsonService, gateway: JsonService, store: E
         from .completion import submit_completion
         await submit_completion(core,"/internal/v1/analysis/complete", {"jobId": job["jobId"], "workerId": worker,
                         "generation": job["generation"], "modelId": result["configured_model"],
+                        **({"inferenceReceipt":result["inference_receipt"]} if result.get("inference_receipt") else {}),
                         "promptVersion": result["prompt_version"], "objects": converted},len(converted),job)
         return True
     except (ServiceError, OSError, ValueError, KeyError, TypeError) as failure:

@@ -1,5 +1,5 @@
 import {chineseMessage} from './chinese-copy.js'
-import {FloatingNotice} from './Feedback.jsx'
+import {FloatingNotice,InfoBubble} from './Feedback.jsx'
 import React,{useEffect,useRef,useState} from 'react'
 import MapCanvas from './MapCanvas.jsx'
 import CameraMapPanel from './CameraMapPanel.jsx'
@@ -18,7 +18,7 @@ export default function CollectionMap({collectionId,revision,onSelect,onUnauthen
     return()=>abort.abort()
   },[collectionId,revision,open,enabled,reload])
   if(!enabled)return null
-  return <section className="admin-card"><div className="admin-card-heading"><div><h2>候选地图</h2><p className="admin-muted">显示点位和已记录的候选关联，虚线不代表实际行驶路径。</p></div><button type="button" className="admin-button secondary" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>{open?'收起地图':'查看高德地图'}</button></div>
+  return <section className="admin-card"><div className="admin-card-heading"><div><h2>候选地图</h2><InfoBubble title="候选地图说明">显示点位和已记录的候选关联，虚线不代表实际行驶路径。</InfoBubble></div><button type="button" className="admin-button secondary" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>{open?'收起地图':'查看高德地图'}</button></div>
     {open&&<>{error?<FloatingNotice className="notice error" role="alert">{error}<button type="button" className="text-button" onClick={()=>setReload(value=>value+1)}>重新读取</button></FloatingNotice>:!data?<p role="status">正在读取地图线索…</p>:<>{data.missing_locations>0&&<p className="result-note">{data.missing_locations} 条线索的点位尚未配置坐标，仍可在时间轴查看。</p>}{data.points.length?<MapCanvas points={data.points} links={data.links} onSelect={point=>callbacks.current.onSelect(point.observation_id)}/>:<CameraMapPanel onUnauthenticated={()=>callbacks.current.onUnauthenticated()}/>}</>}</>}
   </section>
 }

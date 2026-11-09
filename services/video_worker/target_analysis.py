@@ -42,7 +42,7 @@ async def analyze_targets(core, gateway, image, worker, job, image_transport='js
         raise ValueError('analysis frame binding differs')
     result = response['result']
     if activity is not None:
-        if response.get('activity_scope_applied') is not True or response.get('prompt_version') not in {'bound-targets-activity-v2','bound-targets-activity-v3','bound-targets-activity-v4'}:
+        if response.get('activity_scope_applied') is not True or response.get('prompt_version') not in {'bound-targets-activity-v2','bound-targets-activity-v3','bound-targets-activity-v4','bound-targets-activity-zh-v5'}:
             raise ValueError('gateway has not applied the requested activity scope')
         from services.scene_analysis.activity_regions import active_target
         additional=[]
@@ -59,5 +59,5 @@ async def analyze_targets(core, gateway, image, worker, job, image_transport='js
     await submit_completion(core,'/internal/v2/analysis/complete', {'jobId': job['jobId'], 'workerId': worker,
                     'generation': job['generation'], 'modelId': response['configured_model'], 'promptVersion': response['prompt_version'],
                     'targets': targets, 'additionalObjects': [convert_object(v) for v in result['additional_objects']],
-                    'sceneDescription': result.get('scene_description')},count,job)
+                    'sceneDescription': result.get('scene_description'),**({'inferenceReceipt':response['inference_receipt']} if response.get('inference_receipt') else {})},count,job)
     return True

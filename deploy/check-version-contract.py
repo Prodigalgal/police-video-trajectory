@@ -64,6 +64,8 @@ def verify(root=ROOT, *, web_dist=False, jar=None):
     found['migration_026']=re.search(r'Application version: ([0-9.]+)\.',specialist_control).group(1)
     plate_projection=(root/'services/core_api/src/main/resources/db/027-reviewed-plate-index.sql').read_text()
     found['migration_027']=re.search(r'Application version: ([0-9.]+)\.',plate_projection).group(1)
+    inference_receipts=(root/'services/core_api/src/main/resources/db/028-analysis-receipts.sql').read_text()
+    found['migration_028']=re.search(r'Application version: ([0-9.]+)\.',inference_receipts).group(1)
     if web_dist:
         found['web_artifact'] = json.loads((root / 'web/dist/version.json').read_text())['version']
     if jar:

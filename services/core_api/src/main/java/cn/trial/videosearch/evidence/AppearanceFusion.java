@@ -28,12 +28,12 @@ public class AppearanceFusion {
         if(value==null)return new Semantic("disabled",Map.of(),List.of(),null,null);
         if(value.state()==null||!Set.of("completed","disabled","unavailable","timeout").contains(value.state())||value.attributes()==null||!FIELDS.containsAll(value.attributes().keySet())
             ||value.uncertainFields()==null||value.uncertainFields().size()>5||!FIELDS.containsAll(value.uncertainFields()))throw new IllegalArgumentException("Invalid appearance semantics");
-        if(value.modelId()!=null&&(value.modelId().isBlank()||value.modelId().length()>200)||value.promptVersion()!=null&&!"appearance-description-v1".equals(value.promptVersion()))throw new IllegalArgumentException("Invalid semantic model");
+        if(value.modelId()!=null&&(value.modelId().isBlank()||value.modelId().length()>200)||value.promptVersion()!=null&&!java.util.Set.of("appearance-description-v1","appearance-description-zh-v2").contains(value.promptVersion()))throw new IllegalArgumentException("Invalid semantic model");
         if("completed".equals(value.state())&&(value.modelId()==null||value.promptVersion()==null))throw new IllegalArgumentException("Semantic model required");
         for(String field:FIELDS){Object raw=value.attributes().get(field);if(raw==null)continue;
             if(field.equals("carrying")){if(!(raw instanceof List<?> list)||list.size()>12||list.stream().anyMatch(item->!(item instanceof String text)||text.isBlank()||text.length()>100))throw new IllegalArgumentException("Invalid carrying attributes");}
             else if(!(raw instanceof String text)||text.length()>80)throw new IllegalArgumentException("Invalid appearance attribute");
-        }return value;
+        }cn.trial.videosearch.attributes.ChineseSemantics.requireAttributes(value.attributes());return value;
     }
     private static String text(Semantic semantic,String field){return semantic.uncertainFields().contains(field)?null:(String)semantic.attributes().get(field);}
     @SuppressWarnings("unchecked")

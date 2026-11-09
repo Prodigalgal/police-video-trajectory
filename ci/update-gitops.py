@@ -13,7 +13,7 @@ for image in (core,runtime):
     if not re.fullmatch(r'[a-z0-9./_-]+@sha256:[a-f0-9]{64}',image):raise ValueError('immutable digest required')
 root=Path(root)/'police-video-trajectory'
 names={'core-api','web-ui','ai-gateway','rtsp-worker','archive-worker','analysis-worker'}
-initial_flags={'core-api':{'VIDEO_RECORDING_REVIEW_ENABLED':'true'},'web-ui':{'WEB_RECORDING_REVIEW_ENABLED':'true'},
+initial_flags={'core-api':{'VIDEO_RECORDING_REVIEW_ENABLED':'true'},'web-ui':{'WEB_RECORDING_REVIEW_ENABLED':'true','WEB_PROCESSING_TRACE_ENABLED':'true'},
                'rtsp-worker':{'LIVE_RECORDING_ENABLED':'true','CAPTURE_ANALYSIS_HANDOFF_ENABLED':'false'}}
 for name in sorted(names):
     path=root/'runtime'/(name+'.json')

@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from .semantic_language import ChineseSemanticText
 
 
 class StrictModel(BaseModel):
@@ -102,11 +103,11 @@ class AppearanceImageMetadata(ImageMetadata):
 
 
 class AppearanceDescription(StrictModel):
-    upper_color: str | None = Field(default=None,max_length=80)
-    lower_color: str | None = Field(default=None,max_length=80)
-    vehicle_color: str | None = Field(default=None,max_length=80)
-    transport_type: str | None = Field(default=None,max_length=80)
-    carrying: list[Annotated[str,Field(min_length=1,max_length=100)]] = Field(default_factory=list,max_length=12)
+    upper_color: ChineseSemanticText | None = Field(default=None,max_length=80)
+    lower_color: ChineseSemanticText | None = Field(default=None,max_length=80)
+    vehicle_color: ChineseSemanticText | None = Field(default=None,max_length=80)
+    transport_type: ChineseSemanticText | None = Field(default=None,max_length=80)
+    carrying: list[Annotated[ChineseSemanticText,Field(min_length=1,max_length=100)]] = Field(default_factory=list,max_length=12)
     uncertain_fields: list[Literal['upper_color','lower_color','vehicle_color','transport_type','carrying']] = Field(default_factory=list,max_length=5)
 
 
@@ -115,12 +116,12 @@ class FrameRequest(ImageMetadata):
 
 
 class VisibleAttributes(StrictModel):
-    upper_color: str | None = Field(default=None, max_length=80)
-    lower_color: str | None = Field(default=None, max_length=80)
-    carrying: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=12)
-    visible_action: str | None = Field(default=None, max_length=80)
-    transport_type: str | None = Field(default=None, max_length=80)
-    vehicle_color: str | None = Field(default=None,max_length=80)
+    upper_color: ChineseSemanticText | None = Field(default=None, max_length=80)
+    lower_color: ChineseSemanticText | None = Field(default=None, max_length=80)
+    carrying: list[Annotated[ChineseSemanticText, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=12)
+    visible_action: ChineseSemanticText | None = Field(default=None, max_length=80)
+    transport_type: ChineseSemanticText | None = Field(default=None, max_length=80)
+    vehicle_color: ChineseSemanticText | None = Field(default=None,max_length=80)
 
 
 class VisibleObject(StrictModel):
@@ -128,7 +129,7 @@ class VisibleObject(StrictModel):
     bbox_xyxy: tuple[float, float, float, float] | None = None
     attributes: VisibleAttributes = Field(default_factory=VisibleAttributes)
     uncertain_fields: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=20)
-    description: str | None = Field(default=None, max_length=500)
+    description: ChineseSemanticText | None = Field(default=None, max_length=500)
 
     @model_validator(mode='after')
     def vehicle_color_scope(self):
@@ -197,7 +198,7 @@ class TargetAttributes(StrictModel):
     visible: bool | None
     attributes: VisibleAttributes = Field(default_factory=VisibleAttributes)
     uncertain_fields: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=20)
-    description: str | None = Field(default=None, max_length=500)
+    description: ChineseSemanticText | None = Field(default=None, max_length=500)
 
     @model_validator(mode='after')
     def vehicle_color_scope(self):
@@ -210,4 +211,4 @@ class TargetResult(StrictModel):
     schema_version: Literal['2.0'] = '2.0'
     targets: list[TargetAttributes] = Field(max_length=100)
     additional_objects: list[VisibleObject] = Field(default_factory=list, max_length=100)
-    scene_description: str | None = Field(default=None, max_length=500)
+    scene_description: ChineseSemanticText | None = Field(default=None, max_length=500)
