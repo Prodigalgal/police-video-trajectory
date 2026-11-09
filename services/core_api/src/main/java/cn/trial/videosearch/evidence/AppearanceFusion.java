@@ -17,7 +17,12 @@ public class AppearanceFusion {
     private static final double VISUAL_WEIGHT=.7,SEMANTIC_WEIGHT=.3,RANK_OFFSET=60;
     private final SearchOrchestrator search;
     public AppearanceFusion(SearchOrchestrator search){this.search=search;}
-    public record Semantic(String state,Map<String,Object> attributes,List<String> uncertainFields,String modelId,String promptVersion){}
+    public record Semantic(String state,Map<String,Object> attributes,List<String> uncertainFields,String modelId,String promptVersion){
+        public Map<String,Object> requestValues(){
+            var value=new LinkedHashMap<String,Object>();value.put("state",state);value.put("attributes",attributes);value.put("uncertain_fields",uncertainFields);
+            value.put("model_id",modelId);value.put("prompt_version",promptVersion);return value;
+        }
+    }
     public record Outcome(Map<String,Map<String,Object>> rankings,Map<String,Object> summary){}
     public static Semantic validated(Semantic value){
         if(value==null)return new Semantic("disabled",Map.of(),List.of(),null,null);

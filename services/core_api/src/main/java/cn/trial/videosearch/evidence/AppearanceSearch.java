@@ -29,7 +29,7 @@ public class AppearanceSearch {
         if(start!=null&&end!=null&&start.isAfter(end))throw new IllegalArgumentException();
         var semantic=AppearanceFusion.validated(query.semantic());
         var request=new LinkedHashMap<String,Object>();request.put("profile_sha256",profile.sha256());request.put("image_sha256",query.imageSha256());request.put("bbox_xyxy",query.bbox());request.put("image_width",query.imageWidth());request.put("image_height",query.imageHeight());request.put("target_type",query.targetType());request.put("cameras",cameras);request.put("start",query.start());request.put("end",query.end());request.put("vector_sha256",CanonicalJson.encode(query.vector(),32768).sha256());
-        request.put("semantic",semantic);
+        request.put("semantic",semantic.requestValues());
         String fingerprint=CanonicalJson.encode(request,16384).sha256(),scope=scope();
         var old=stored(query.requestId());if(!old.isEmpty()){check(old.getFirst(),actor,revision,fingerprint,scope);return page(query.requestId(),actor,revision,0,10);}
         var filter=new AppearanceIndex.Filter(query.targetType(),cameras,start,end);

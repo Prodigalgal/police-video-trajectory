@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import java.util.*;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class AppearanceFusionTest {
     private static AppearanceIndex.Ranked hit(){return new AppearanceIndex.Ranked(Map.of("observation_id",UUID.randomUUID().toString(),"record_version",1L,"frame_id",UUID.randomUUID().toString(),"camera_id","one","target_type","vehicle"),Map.of(),"",.85);}
@@ -40,5 +42,18 @@ class AppearanceFusionTest {
     @Test void missingOrUnknownSemanticsCannotBecomeAnArbitraryQuery(){
         assertEquals("disabled",AppearanceFusion.validated(null).state());
         assertThrows(IllegalArgumentException.class,()->AppearanceFusion.validated(new AppearanceFusion.Semantic("completed",Map.of("query",Map.of("match_all",Map.of())),List.of(),"vision","appearance-description-v1")));
+    }
+    @Test void queryFingerprintAcceptsTypedSemanticsIncludingTheUnavailableFallback(){
+        var db=mock(JdbcTemplate.class);var scope=mock(SearchOrchestrator.class);var catalog=mock(AppearanceCatalog.class);
+        String profileSha="a".repeat(64);var profile=new AppearanceCatalog.Profile("visual",profileSha,384,Map.of());
+        when(catalog.current()).thenReturn(new AppearanceCatalog.Snapshot(1,"visual",Map.of("visual",profile)));
+        when(scope.readableCameras()).thenReturn(Set.of("one"));when(scope.mayReadCamera("one")).thenReturn(true);
+        var service=new AppearanceSearch(db,mock(AppearanceJobs.class),catalog,mock(AppearanceSource.class),mock(AppearanceIndex.class),scope,new AppearanceFusion(scope),mock(PlatformTransactionManager.class));
+        for(var semantics:List.of(semantic(),new AppearanceFusion.Semantic("unavailable",Map.of(),List.of(),null,null))){
+            UUID id=UUID.randomUUID();var vector=new ArrayList<Double>(Collections.nCopies(384,0.0));vector.set(0,1.0);
+            when(db.queryForList(anyString(),eq(id))).thenThrow(new InputRejected(404,"reached_snapshot_lookup"));
+            var query=new AppearanceSearch.Query(id,"visual",profileSha,"b".repeat(64),List.of(1.0,2.0,40.0,50.0),100,80,"vehicle",List.of("one"),null,null,vector,semantics);
+            var reached=assertThrows(InputRejected.class,()->service.create(query,"operator",1));assertEquals("reached_snapshot_lookup",reached.code);
+        }
     }
 }
