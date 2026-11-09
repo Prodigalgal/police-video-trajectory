@@ -1,4 +1,4 @@
--- Application version: 0.27.0. Independent projection versions preserve source observations.
+-- Application version: 0.27.1. Independent projection versions preserve source observations.
 CREATE TABLE IF NOT EXISTS reviewed_plate_index_tasks (
  observation_id uuid PRIMARY KEY REFERENCES observations(observation_id),
  requested_revision bigint NOT NULL DEFAULT 1 CHECK(requested_revision>0),
