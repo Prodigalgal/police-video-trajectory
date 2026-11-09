@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'cn.trial.videosearch'
-version = '0.23.1'
+version = '0.23.2'
 springBoot { buildInfo() }
 
 java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }

@@ -37,7 +37,13 @@ export default function ImageSearch(){
   function closeSnapshot(value){if(value?.id)fetch('/api/v1/appearance/queries/'+value.id,{method:'DELETE',keepalive:true}).catch(()=>{/* Snapshot TTL bounds cleanup when disconnected. */})}
   function reset(){active.current?.abort();active.current=null;setBusy(false);closeSnapshot(snapshot.current);snapshot.current=null;setResult(null);setHistory([0]);setPage(0);setSelected(null);setPlayer(null)}
   function unauthenticated(){fileGeneration.current+=1;reset();setAuthenticated(false);setCapabilities(null);setFile(null);setUrl(null);setSize(null);setBox(null);if(preview.current){URL.revokeObjectURL(preview.current);preview.current=null}}
-  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;fileGeneration.current+=1;active.current?.abort();closeSnapshot(snapshot.current);if(preview.current)URL.revokeObjectURL(preview.current)}},[])
+  useEffect(()=>{
+    mounted.current=true
+    function leave(){fileGeneration.current+=1;active.current?.abort();active.current=null;closeSnapshot(snapshot.current);snapshot.current=null}
+    function restore(event){if(event.persisted){reset();setStartup(value=>value+1)}}
+    window.addEventListener('pagehide',leave);window.addEventListener('pageshow',restore)
+    return()=>{mounted.current=false;window.removeEventListener('pagehide',leave);window.removeEventListener('pageshow',restore);leave();if(preview.current)URL.revokeObjectURL(preview.current)}
+  },[])
   useEffect(()=>{const controller=new AbortController();fetch('/api/session',{signal:controller.signal}).then(appearanceJson).then(value=>{if(!controller.signal.aborted)setAuthenticated(value.authenticated)}).catch(problem=>{if(!controller.signal.aborted)setError(chineseMessage(problem.message))});return()=>controller.abort()},[startup])
   useEffect(()=>{if(!authenticated)return;const controller=new AbortController();setCapabilities(null);appearanceApi('/api/v1/appearance/capabilities',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted)setCapabilities(value)}).catch(problem=>{if(!controller.signal.aborted){setError(chineseMessage(problem.message));if(problem.unauthorized)unauthenticated()}});return()=>controller.abort()},[authenticated,startup])
   async function chooseFile(event){
