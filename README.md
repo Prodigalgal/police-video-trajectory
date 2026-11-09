@@ -12,6 +12,14 @@
 
 源码能力不代表所有运行环境均已配置并通过验收。模型、原始媒体、账号、地图服务和部署凭据需要独立配置。本系统不包含模型训练功能。
 
+## 留存帧与录像回看
+
+管理员可在“录像回看”中按点位分页查看已绑定同会话片段的留存帧、核验原图，并从该帧在片段中的位置播放。该入口使用独立管理员 API；原有普通用户已完成观测的读取范围保持不变。没有录像绑定的旧帧不能按相近时间补造片段。
+
+部署端分别用 `VIDEO_RECORDING_REVIEW_ENABLED` 与 `WEB_RECORDING_REVIEW_ENABLED` 开启 Core 和 Web 入口；采集端用 `LIVE_RECORDING_ENABLED` 开启同会话录制。`CAPTURE_ANALYSIS_HANDOFF_ENABLED=false` 让新采集仅持久登记：Worker 注册时传入可选参数 `analysis_requested=false`，Core 保存暂停标记，后台调度不会为这些帧建立分析任务。有效收据显式调用 enqueue 才解除该帧暂停；省略参数沿用旧版自动交接行为。该模式不撤销既有分析任务，登记数量仍受现有 outbox 配额约束。
+
+已绑定的业务片段受保护，当前不会自动过期删除。升级需先执行新增数据库迁移；如果存在暂停登记帧，回滚至不支持暂停标记的旧 Core 前，应保持 Worker 为零副本，并设置 `VIDEO_CAPTURE_DISPATCHER_ENABLED=false`，防止旧调度器推进这些帧。
+
 ## 验证与发布
 
 统一版本在 `VERSION`。执行 `python deploy/check-version-contract.py` 检查各组件版本；Java 使用 JDK 21、Gradle 9.1.0，前端使用 Node 22。运行 `gradle -p services/core_api test bootJar`、`node --test web/tests/*.test.mjs` 与 `npm ci --prefix web && npm run build --prefix web`。

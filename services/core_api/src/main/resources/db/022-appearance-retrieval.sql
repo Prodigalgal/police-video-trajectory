@@ -1,4 +1,4 @@
--- Application version: 0.21.8. Additive, separately paused appearance index.
+-- Application version: 0.22.0. Additive, separately paused appearance index.
 CREATE TABLE IF NOT EXISTS appearance_profiles (
     profile text PRIMARY KEY, definition_sha256 text NOT NULL UNIQUE,
     definition jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp()

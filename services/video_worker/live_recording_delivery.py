@@ -21,12 +21,13 @@ def pin_frame(settings,record):
         log(json.dumps({'event':'recording_reference_unconfirmed','frame_id':record.get('frame_id')}));return False
 
 
-def pending(settings):
+def pending(settings,namespace=None):
     root=Path(settings.live_recording_dir)
     if root.is_symlink():raise ValueError('recording root is not safe')
     if not root.is_dir():return []
     result=[]
-    namespaces=[p for p in root.iterdir() if re.fullmatch('[a-f0-9]{32}',p.name)]
+    if namespace is not None and not re.fullmatch('[a-f0-9]{32}',namespace):raise ValueError('invalid recording namespace')
+    namespaces=[p for p in root.iterdir() if re.fullmatch('[a-f0-9]{32}',p.name) and (namespace is None or p.name==namespace)]
     if len(namespaces)>128:raise ValueError('recording namespace limit exceeded')
     for directory in namespaces:
         try:
@@ -37,13 +38,13 @@ def pending(settings):
     return result
 
 
-async def publish_recordings(settings,core):
+async def publish_recordings(settings,core,*,namespace=None):
     while True:
         try:
-            rows=await asyncio.to_thread(pending,settings)
-            for namespace,row in rows:
-                frame,segment,sha,pts,packet,digest=row;store=LiveStore(settings.live_recording_dir,namespace)
-                body={'frameId':frame,'payloadSha256':sha,'namespace':namespace,'segmentId':segment,
+            rows=await asyncio.to_thread(pending,settings,namespace)
+            for recording_namespace,row in rows:
+                frame,segment,sha,pts,packet,digest=row;store=LiveStore(settings.live_recording_dir,recording_namespace)
+                body={'frameId':frame,'payloadSha256':sha,'namespace':recording_namespace,'segmentId':segment,
                       'manifestSha256':digest,'sourcePtsUs':pts,'packetSha256':packet}
                 try:
                     reply=await core.post('/internal/v1/frame-recordings/register',body)

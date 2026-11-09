@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -174,8 +175,8 @@ public class WorkerController {
 
     @PostMapping("/internal/v2/captures/register")
     public Mono<ResponseEntity<Map<String,Object>>> registerCapture(@RequestHeader(value="Authorization",required=false) String auth,
-            @RequestBody TargetPipeline.Capture body) {
-        return call(auth,()->ResponseEntity.ok(Map.of("capture",targets.register(body))));
+            @RequestBody TargetPipeline.Capture body,@RequestParam(name="analysis_requested",defaultValue="true") boolean analysisRequested) {
+        return call(auth,()->ResponseEntity.ok(Map.of("capture",targets.register(body,analysisRequested))));
     }
 
     @PostMapping("/internal/v2/captures/enqueue")

@@ -82,6 +82,11 @@ public class TargetPipeline {
 
     @Transactional
     public Receipt register(Capture item) {
+        return register(item,true);
+    }
+
+    @Transactional
+    public Receipt register(Capture item,boolean admissionRequested) {
         if(item==null || item.frameId()==null || item.taskId()==null || item.sceneRunId()==null || item.generation()<1 ||
                 item.mediaEpoch()<0 || item.relativeMediaMs()<0 || item.workerId()==null || !item.workerId().matches("[A-Za-z0-9_.-]{1,100}") ||
                 item.payloadSha256()==null || !item.payloadSha256().matches("[0-9a-f]{64}") ||
@@ -114,10 +119,10 @@ public class TargetPipeline {
         UUID receipt=UUID.randomUUID();
         db.update("""
                 INSERT INTO capture_outbox(frame_id,receipt,task_id,worker_id,lease_generation,evidence_ref,payload_sha256,camera_id,source_type,
-                  source_time_origin,media_offset_ms,source_time,scene_run_id,media_epoch,relative_media_ms,plan)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb))
+                  source_time_origin,media_offset_ms,source_time,scene_run_id,media_epoch,relative_media_ms,plan,admission_requested)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?)
                 """,item.frameId(),receipt,item.taskId(),item.workerId(),item.generation(),item.evidenceRef(),item.payloadSha256(),row.get("camera_id"),row.get("source_type"),row.get("source_time_origin"),
-                item.mediaOffsetMs(),item.sourceTime()==null?null:Timestamp.from(item.sourceTime()),item.sceneRunId(),item.mediaEpoch(),item.relativeMediaMs(),encoded);
+                item.mediaOffsetMs(),item.sourceTime()==null?null:Timestamp.from(item.sourceTime()),item.sceneRunId(),item.mediaEpoch(),item.relativeMediaMs(),encoded,admissionRequested);
         int ordinal=0;
         for(var target:targets) {
             db.update("""
@@ -144,7 +149,10 @@ public class TargetPipeline {
         db.execute("SELECT pg_advisory_xact_lock(918273645)");
         var rows=db.queryForList("SELECT * FROM capture_outbox WHERE frame_id=? AND receipt=? AND payload_sha256=? FOR UPDATE",item.frameId(),item.receipt(),item.payloadSha256());
         if(rows.size()!=1) throw new IllegalStateException("capture receipt conflict");
-        if(rows.getFirst().get("enqueued_at")==null) admitWaiting(8);
+        if(rows.getFirst().get("enqueued_at")==null) {
+            db.update("UPDATE capture_outbox SET admission_requested=true WHERE frame_id=?",item.frameId());
+            admitWaiting(8);
+        }
         var jobs=db.queryForList("SELECT job_id FROM analysis_jobs WHERE frame_id=?",item.frameId());
         return jobs.isEmpty()?Optional.empty():Optional.of((UUID)jobs.getFirst().get("job_id"));
     }
@@ -159,7 +167,7 @@ public class TargetPipeline {
     private int admitWaiting(int batchLimit) {
         Integer pending=db.queryForObject("SELECT count(*) FROM analysis_jobs WHERE state IN ('queued','active')",Integer.class);
         if(pending==null || pending>=queue.pendingLimit()) return 0;
-        var waiting=db.queryForList("SELECT c.* FROM capture_outbox c WHERE c.enqueued_at IS NULL AND NOT EXISTS(SELECT 1 FROM capture_faults q WHERE q.frame_id=c.frame_id AND q.restored_at IS NULL) ORDER BY c.registered_at,c.frame_id FOR UPDATE OF c SKIP LOCKED LIMIT ?",Math.min(batchLimit,queue.pendingLimit()-pending));
+        var waiting=db.queryForList("SELECT c.* FROM capture_outbox c WHERE c.enqueued_at IS NULL AND c.admission_requested AND NOT EXISTS(SELECT 1 FROM capture_faults q WHERE q.frame_id=c.frame_id AND q.restored_at IS NULL) ORDER BY c.registered_at,c.frame_id FOR UPDATE OF c SKIP LOCKED LIMIT ?",Math.min(batchLimit,queue.pendingLimit()-pending));
         int admitted=0;
         for(var row:waiting) {
             UUID frameId=(UUID)row.get("frame_id");

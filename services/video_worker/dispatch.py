@@ -131,7 +131,7 @@ async def prepare_selected(settings, spool):
         planner.close()
 
 
-async def deliver_selected(core, store, spool):
+async def deliver_selected(core, store, spool, *, analysis_handoff=True):
     """Retry persisted plans/receipts without rerunning target inference."""
     retry_delay, retry_at = DELIVERY_RETRY_BASE_SECONDS, 0.
     while True:
@@ -156,7 +156,8 @@ async def deliver_selected(core, store, spool):
                 reference = await asyncio.to_thread(store.write, uuid.UUID(frame_id), record['payload'])
                 receipt = record['receipt']
                 if receipt is None:
-                    response = await core.post('/internal/v2/captures/register', {
+                    registration_path='/internal/v2/captures/register'+('' if analysis_handoff else '?analysis_requested=false')
+                    response = await core.post(registration_path, {
                         'frameId': frame_id, 'taskId': meta['task_id'], 'workerId': meta['worker_id'], 'generation': meta['generation'],
                         'evidenceRef': reference, 'payloadSha256': digest, 'mediaOffsetMs': meta['media_offset_ms'],
                         'sourceTime': meta['source_time'], 'sceneRunId': meta['scene_run_id'], 'mediaEpoch': meta['media_epoch'],
@@ -168,15 +169,16 @@ async def deliver_selected(core, store, spool):
                     await asyncio.to_thread(spool.attach, frame_id, digest, 'receipt', receipt)
                     log(json.dumps({'event': 'capture_registered', 'frame_id': frame_id, 'camera_id': meta['camera_id'],
                                     'targets': len(plan['targets']), 'detection_state': plan['detection_state']}))
-                response = await core.post('/internal/v2/captures/enqueue', receipt)
-                if response['frameId'] != frame_id or response['payloadSha256'] != digest:
-                    raise ValueError('queue acknowledgement mismatch')
-                if response.get('queued') is not True:
-                    raise ServiceError(429 if response.get('queued') is False else 502)
-                uuid.UUID(response['jobId'])
+                if analysis_handoff:
+                    response = await core.post('/internal/v2/captures/enqueue', receipt)
+                    if response['frameId'] != frame_id or response['payloadSha256'] != digest:
+                        raise ValueError('queue acknowledgement mismatch')
+                    if response.get('queued') is not True:
+                        raise ServiceError(429 if response.get('queued') is False else 502)
+                    uuid.UUID(response['jobId'])
                 await asyncio.to_thread(spool.acknowledge, frame_id, digest)
                 retry_delay = DELIVERY_RETRY_BASE_SECONDS
-                log(json.dumps({'event': 'target_frame_queued', 'frame_id': frame_id, 'camera_id': meta['camera_id'],
+                log(json.dumps({'event': 'target_frame_queued' if analysis_handoff else 'capture_registered_without_analysis', 'frame_id': frame_id, 'camera_id': meta['camera_id'],
                                 'targets': len(plan['targets']), 'strategy': 'frame_batch'}))
             except (ServiceError, OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
                 # No raw responses, credentials, payloads or receipts are logged.
@@ -201,7 +203,7 @@ async def dispatch_selected(settings, core, store, spool):
     # Unexpected exit in either stage stops the supervisor so the runner cannot
     # leave a healthy-looking capture process with a dead preparation/delivery.
     stages = [asyncio.create_task(prepare_selected(settings, spool)),
-              asyncio.create_task(deliver_selected(core, store, spool))]
+              asyncio.create_task(deliver_selected(core, store, spool, analysis_handoff=getattr(settings,'capture_analysis_handoff_enabled',True)))]
     try:
         done, _ = await asyncio.wait(stages, return_when=asyncio.FIRST_COMPLETED)
         for task in done:

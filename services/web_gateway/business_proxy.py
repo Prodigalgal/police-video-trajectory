@@ -17,11 +17,14 @@ class BusinessProxy:
         if admin and not account.get('is_admin'):raise HTTPException(403,'需要管理员权限')
         return account
 
+    def actor_headers(self,account):
+        return {'Authorization':'Bearer '+self.cfg['admin_token'],'X-Actor-Id':account['username'],'X-Actor-Revision':str(account['credential_revision'])}
+
     async def call(self,request,method,path,*,body=None,params=None,admin=False,timeout=60):
         account=self.authorize(request,write=method!='GET',admin=admin)
         try:
             async with self.app.state.http.stream(method,self.cfg['core_url'].rstrip('/')+path,json=body,params=params,
-                headers={'Authorization':'Bearer '+self.cfg['admin_token'],'X-Actor-Id':account['username'],'X-Actor-Revision':str(account['credential_revision'])},timeout=timeout) as response:
+                headers=self.actor_headers(account),timeout=timeout) as response:
                 raw=bytearray()
                 async for chunk in response.aiter_bytes():
                     raw.extend(chunk)

@@ -3,12 +3,7 @@ package cn.trial.videosearch.evidence;
 import cn.trial.videosearch.search.SearchOrchestrator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.core.io.buffer.DefaultDataBufferFactory;
-import org.springframework.http.CacheControl;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,12 +14,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.Set;
 import java.util.UUID;
 
 /** Serve registered historical files or verified same-session recordings. */
@@ -73,49 +65,14 @@ public class ArchiveController {
             path = root.resolve(ref.substring("archive:".length()) + ".mp4").normalize();
             if (!path.getParent().equals(root) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) return ResponseEntity.notFound().build();
             }
-            long size = Files.size(path);
-            if (size <= 0) return ResponseEntity.notFound().build();
-            long[] selected = parseRange(requested, size);
-            if (selected == null) return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
-                    .header(HttpHeaders.CONTENT_RANGE, "bytes */" + size).build();
-            long start = selected[0], end = selected[1], length = end - start + 1;
-            Flux<DataBuffer> body = DataBufferUtils.readByteChannel(() -> {
-                SeekableByteChannel channel = Files.newByteChannel(path, Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS));
-                channel.position(start);
-                return channel;
-            }, new DefaultDataBufferFactory(), 64 * 1024).transform(stream -> DataBufferUtils.takeUntilByteCount(stream, length))
-                    .subscribeOn(Schedulers.boundedElastic());
-            var response = ResponseEntity.status(requested == null ? HttpStatus.OK : HttpStatus.PARTIAL_CONTENT)
-                    .contentType(MediaType.valueOf("video/mp4")).contentLength(length)
-                    .header(HttpHeaders.ACCEPT_RANGES, "bytes").cacheControl(CacheControl.noStore());
-            if (requested != null) response.header(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + size);
-            result = "ok";
-            return response.body(body);
+            var response=MediaRangeResponse.read(path,requested);
+            result=response.getStatusCode().is2xxSuccessful()?"ok":"range_rejected";
+            return response;
         } finally {
             db.update("INSERT INTO audit_events(actor_id, action, result, request_id) VALUES (?, ?, ?, ?)",
                     "trial-service-account", "read_archive", result, requestId);
         }
     }
 
-    public static long[] parseRange(String header, long size) {
-        if (size <= 0) return null;
-        if (header == null) return new long[]{0, size - 1};
-        if (!header.matches("bytes=\\d*-\\d*") || header.length() > 100) return null;
-        String[] parts = header.substring(6).split("-", -1);
-        if (parts[0].isEmpty() && parts[1].isEmpty()) return null;
-        try {
-            long start, end;
-            if (parts[0].isEmpty()) {
-                long suffix = Long.parseLong(parts[1]);
-                if (suffix <= 0) return null;
-                start = Math.max(0, size - suffix); end = size - 1;
-            } else {
-                start = Long.parseLong(parts[0]);
-                end = parts[1].isEmpty() ? size - 1 : Math.min(Long.parseLong(parts[1]), size - 1);
-            }
-            return start >= size || end < start ? null : new long[]{start, end};
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
+    public static long[] parseRange(String header,long size) { return MediaRangeResponse.range(header,size); }
 }

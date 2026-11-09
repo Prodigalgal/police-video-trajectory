@@ -11,12 +11,18 @@ for image in (core,runtime):
     if not re.fullmatch(r'[a-z0-9./_-]+@sha256:[a-f0-9]{64}',image):raise ValueError('immutable digest required')
 root=Path(root)/'police-video-trajectory'
 names={'core-api','web-ui','ai-gateway','rtsp-worker','archive-worker','analysis-worker'}
+initial_flags={'core-api':{'VIDEO_RECORDING_REVIEW_ENABLED':'true'},'web-ui':{'WEB_RECORDING_REVIEW_ENABLED':'true'},
+               'rtsp-worker':{'LIVE_RECORDING_ENABLED':'true','CAPTURE_ANALYSIS_HANDOFF_ENABLED':'false'}}
 for name in sorted(names):
     path=root/'runtime'/(name+'.json')
     value=json.loads(path.read_text())
     if value['kind']!='Deployment' or value['metadata']['name']!=name:raise ValueError('unexpected deployment')
     value['spec']['template']['spec']['containers'][0]['image']=core if name=='core-api' else runtime
     value['spec']['template']['spec']['containers'][0]['imagePullPolicy']='IfNotPresent'
+    environment=value['spec']['template']['spec']['containers'][0].setdefault('env',[])
+    configured={entry['name'] for entry in environment}
+    for key,setting in initial_flags.get(name,{}).items():
+        if key not in configured:environment.append({'name':key,'value':setting})
     annotations=value['spec']['template']['metadata'].setdefault('annotations',{})
     annotations.update({'video/version':version,'video/source-revision':revision,'video/actions-run':run})
     path.write_text(json.dumps(value,indent=2)+'\n')

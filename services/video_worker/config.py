@@ -80,6 +80,7 @@ class Settings:
     scene_audit_entries:int=4096
     scene_audit_retention_seconds:float=86400.
     live_recording_enabled:bool=False
+    capture_analysis_handoff_enabled:bool=True
     live_recording_dir:Path=Path('/recordings-live')
     live_recording_bytes:int=512*1024*1024
     live_recording_retention_seconds:int=60
@@ -97,6 +98,8 @@ class Settings:
     @classmethod
     def from_env(cls):
         get = lambda key, default="": os.environ.get(key, default).strip()
+        if get('CAPTURE_ANALYSIS_HANDOFF_ENABLED','true') not in {'true','false'}:
+            raise ValueError('invalid capture analysis handoff setting')
         return cls(core_url=get("CORE_URL"), core_ca=get("CORE_CA_FILE"), worker_token=get("WORKER_TOKEN"),ingestion_jobs_enabled=get('INGESTION_JOBS_ENABLED','false')=='true',
                    exports_enabled=get('EXPORTS_ENABLED','false')=='true',export_dir=Path(get('EXPORT_DIR','/evidence-exports')),
                    export_bytes=int(get('EXPORT_BYTES',str(4*1024**3))),export_job_timeout_seconds=int(get('EXPORT_JOB_TIMEOUT_SECONDS','900')),
@@ -149,6 +152,7 @@ class Settings:
                    scene_audit_bytes=int(get('SCENE_AUDIT_BYTES',str(64*1024*1024))),scene_audit_entries=int(get('SCENE_AUDIT_ENTRIES','4096')),
                    scene_audit_retention_seconds=float(get('SCENE_AUDIT_RETENTION_SECONDS','86400')),
                    live_recording_enabled=get('LIVE_RECORDING_ENABLED','false')=='true',live_recording_dir=Path(get('LIVE_RECORDING_DIR','/recordings-live')),
+                   capture_analysis_handoff_enabled=get('CAPTURE_ANALYSIS_HANDOFF_ENABLED','true')=='true',
                    live_recording_bytes=int(get('LIVE_RECORDING_BYTES',str(512*1024*1024))),live_recording_retention_seconds=int(get('LIVE_RECORDING_RETENTION_SECONDS','60')),
                    live_recording_segment_seconds=int(get('LIVE_RECORDING_SEGMENT_SECONDS','5')),
                    media_jobs_enabled=get('MEDIA_JOBS_ENABLED','false')=='true',media_slots=int(get('MEDIA_SLOTS','1')),

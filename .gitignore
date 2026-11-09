@@ -63,6 +63,8 @@ tests/*
 !tests/test_clue_api.py
 !tests/test_recorded_media_api.py
 !tests/test_processing_plugins.py
+!tests/test_recording_review_api.py
+!tests/test_capture_handoff.py
 web/tests/fixtures/
 web/tests/clue-client.test.mjs
 services/core_api/src/test/resources/fixtures/
