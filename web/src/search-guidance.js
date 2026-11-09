@@ -1,6 +1,6 @@
 const token=/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const cameraId=/^[A-Za-z0-9_-]{1,100}$/
-const conditionId=/^(target|time|location|cameras|upper_color|lower_color|clothing_color|vehicle_color|transport_type|visible_action|carrying:(0|[1-9][0-9]?)|text:(0|[1-9][0-9]?))$/
+const conditionId=/^(target|time|location|cameras|plate|upper_color|lower_color|clothing_color|vehicle_color|transport_type|visible_action|carrying:(0|[1-9][0-9]?)|text:(0|[1-9][0-9]?))$/
 const text=(value,limit)=>typeof value==='string'&&value.trim().length>0&&value.length<=limit
 const boundedList=(value,count,limit)=>Array.isArray(value)&&value.length<=count&&value.every(entry=>text(entry,limit))
 const instant=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))
@@ -20,7 +20,8 @@ export function validateSearchResult(value,query){
   const plan=value.plan
   if(!plan||!['person','vehicle','unknown'].includes(plan.targetType)||!boundedList(plan.cameraIds,50,200)||!boundedList(plan.textTerms,20,200)
     ||!boundedList(plan.clarifications,10,200)||(plan.locationText!==null&&!text(plan.locationText,200))
-    ||(plan.start!==null&&!instant(plan.start))||(plan.end!==null&&!instant(plan.end)))throw new Error('检索条件返回不完整，请重新搜索。')
+    ||(plan.start!==null&&!instant(plan.start))||(plan.end!==null&&!instant(plan.end))
+    ||(plan.plateNumber!=null&&!text(plan.plateNumber,64)))throw new Error('检索条件返回不完整，请重新搜索。')
   if(plan.attributes!==null){
     const attributes=plan.attributes
     if(!attributes||!boundedList(attributes.carrying,12,100)||['upperColor','lowerColor','clothingColor','vehicleColor','transportType','visibleAction'].some(key=>attributes[key]!=null&&!text(attributes[key],80)))throw new Error('检索特征返回不完整，请重新搜索。')
@@ -41,7 +42,7 @@ export function validateSearchResult(value,query){
 export function validateGuidance(value){
   if(!value||value.schema_version!=='search-guidance-v1'||(value.context!==null&&(!text(value.context,32768)||!token.test(value.context)))||!instant(value.expires_at)
     ||!['ready','no_matches','plan_incomplete','location_unresolved','conditions_required'].includes(value.reason)
-    ||!Array.isArray(value.conditions)||value.conditions.length>42||!Array.isArray(value.camera_choices)||value.camera_choices.length>50)throw new Error('可调整的检索条件返回不完整，请重新搜索。')
+    ||!Array.isArray(value.conditions)||value.conditions.length>43||!Array.isArray(value.camera_choices)||value.camera_choices.length>50)throw new Error('可调整的检索条件返回不完整，请重新搜索。')
   const conditions=new Set(),cameras=new Set()
   for(const condition of value.conditions){
     if(!condition||!conditionId.test(condition.id)||!text(condition.label,12000)||typeof condition.removable!=='boolean'||conditions.has(condition.id))throw new Error('检索条件记录重复或无效，请重新搜索。')
