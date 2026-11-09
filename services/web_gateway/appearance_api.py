@@ -24,6 +24,7 @@ class ImageQuery(BaseModel):
     cameras:list[str]=Field(default_factory=list,max_length=50)
     start:str|None=Field(default=None,max_length=40)
     end:str|None=Field(default=None,max_length=40)
+    semantic_assistance:bool=Field(default=False,strict=True)
 
 
 class Produce(BaseModel):
@@ -97,7 +98,11 @@ def mount_appearance(app,cfg,authenticated,origin_ok):
             encoded=await app.state.appearance_runner.recognize(definition,EncodeRequest(bbox_xyxy=metadata.bbox_xyxy,image_sha256=hashlib.sha256(image).hexdigest()),image,remaining)
             result=encoded['result']
             if result['profile_sha256']!=definition.sha256 or result['image_sha256']!=hashlib.sha256(image).hexdigest():raise ValueError('appearance encoding binding differs')
-            body=dict(requestId=str(metadata.request_id),profile=definition.profile,profileSha256=definition.sha256,imageSha256=result['image_sha256'],bbox=metadata.bbox_xyxy,imageWidth=result['image_width'],imageHeight=result['image_height'],targetType=metadata.target_type,cameras=metadata.cameras,start=metadata.start,end=metadata.end,vector=result['vector'])
+            from .appearance_semantics import describe_target
+            remaining=360-(time.monotonic()-started)
+            semantic=await describe_target(cfg,metadata,image,max(1,min(285,remaining-70)))
+            semantic={'state':semantic['state'],'attributes':semantic['attributes'],'uncertainFields':semantic['uncertain_fields'],'modelId':semantic['model_id'],'promptVersion':semantic['prompt_version']}
+            body=dict(requestId=str(metadata.request_id),profile=definition.profile,profileSha256=definition.sha256,imageSha256=result['image_sha256'],bbox=metadata.bbox_xyxy,imageWidth=result['image_width'],imageHeight=result['image_height'],targetType=metadata.target_type,cameras=metadata.cameras,start=metadata.start,end=metadata.end,vector=result['vector'],semantic=semantic)
             response=await proxy.call(request,'POST','/internal/appearance/queries',body=body,timeout=max(1,min(65,360-(time.monotonic()-started))))
             return response
         async def events():
@@ -106,7 +111,7 @@ def mount_appearance(app,cfg,authenticated,origin_ok):
                 kind=value['type'];payload=value['result'] if kind=='result' else {k:v for k,v in value.items() if k!='type'}
                 return 'event: '+kind+'\ndata: '+json.dumps(payload,ensure_ascii=False,separators=(',',':'))+'\n\n'
             try:
-                yield event({'type':'status','message':'正在提取目标外观并检索已入库画面…'})
+                yield event({'type':'status','message':'正在提取目标外观与可见属性，检索已入库画面…' if metadata.semantic_assistance else '正在提取目标外观并检索已入库画面…'})
                 while not task.done():
                     await asyncio.wait({task},timeout=10)
                     if not task.done():yield ': 处理中\n\n'

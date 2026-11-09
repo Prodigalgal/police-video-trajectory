@@ -56,6 +56,8 @@ def verify(root=ROOT, *, web_dist=False, jar=None):
     found['migration_022']=re.search(r'Application version: ([0-9.]+)\.',appearance_migration).group(1)
     review_migration=(root/'services/core_api/src/main/resources/db/023-recording-review.sql').read_text()
     found['migration_023']=re.search(r'Application version: ([0-9.]+)\.',review_migration).group(1)
+    nearby_migration=(root/'services/core_api/src/main/resources/db/024-nearby-records.sql').read_text()
+    found['migration_024']=re.search(r'Application version: ([0-9.]+)\.',nearby_migration).group(1)
     if web_dist:
         found['web_artifact'] = json.loads((root / 'web/dist/version.json').read_text())['version']
     if jar:

@@ -96,6 +96,20 @@ class ImageMetadata(StrictModel):
     media_type: Literal["image/jpeg", "image/png"] = "image/jpeg"
 
 
+class AppearanceImageMetadata(ImageMetadata):
+    target_type: Literal['person','vehicle']
+    request_timeout_seconds: float = Field(default=360,gt=0,le=360)
+
+
+class AppearanceDescription(StrictModel):
+    upper_color: str | None = Field(default=None,max_length=80)
+    lower_color: str | None = Field(default=None,max_length=80)
+    vehicle_color: str | None = Field(default=None,max_length=80)
+    transport_type: str | None = Field(default=None,max_length=80)
+    carrying: list[Annotated[str,Field(min_length=1,max_length=100)]] = Field(default_factory=list,max_length=12)
+    uncertain_fields: list[Literal['upper_color','lower_color','vehicle_color','transport_type','carrying']] = Field(default_factory=list,max_length=5)
+
+
 class FrameRequest(ImageMetadata):
     image_base64: str = Field(min_length=4, max_length=12_000_000, repr=False)
 

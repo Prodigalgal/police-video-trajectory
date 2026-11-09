@@ -34,7 +34,7 @@ test('预览与导出都校验实际字节，摘要不一致拒绝',async t=>{
   const oldFetch=globalThis.fetch,oldCrypto=globalThis.crypto;t.after(()=>{globalThis.fetch=oldFetch;Object.defineProperty(globalThis,'crypto',{value:oldCrypto,configurable:true})});Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true})
   globalThis.fetch=async()=>new Response(new Uint8Array([1,2,3]))
   await assert.rejects(previewFrame({frame_id:first,registered_payload_sha256:'a'.repeat(64)}),/不一致/)
-  await assert.rejects(previewFrame({frame_id:first,registered_payload_sha256:null}),/缺少登记/)
+    await assert.rejects(previewFrame({frame_id:first,registered_payload_sha256:null}),/缺少.*摘要/)
   const payload=JSON.stringify({schema_version:'analysis-input-v1',anchor:{observation_id:obs,record_version:1},purpose:'single_frame',quality:{creation_invoked_inference:false,continuous_video_verified:false}})
   const digest=Buffer.from(await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(payload))).toString('hex')
   globalThis.fetch=async()=>new Response(payload,{headers:{'X-Content-SHA256':digest}})

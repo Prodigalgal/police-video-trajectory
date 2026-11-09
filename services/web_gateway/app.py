@@ -73,8 +73,12 @@ def create_app(config=None, transport=None):
         "live_media_password":os.getenv("WEB_LIVE_MEDIA_PASSWORD",""),
         "live_media_bearer":os.getenv("WEB_LIVE_MEDIA_BEARER",""),
         "live_camera_paths":os.getenv("WEB_LIVE_CAMERA_PATHS_JSON","{}"),
+        "live_preview_paths":os.getenv("WEB_LIVE_PREVIEW_PATHS_JSON","{}"),
         "appearance_catalog_file":os.getenv("APPEARANCE_CATALOG_FILE","/appearance-catalog/catalog.json"),
         "appearance_model_dir":os.getenv("APPEARANCE_MODEL_DIR","/appearance-models"),
+        "appearance_gateway_url":os.getenv("WEB_APPEARANCE_GATEWAY_URL",""),
+        "appearance_gateway_ca":os.getenv("WEB_APPEARANCE_GATEWAY_CA",""),
+        "appearance_gateway_token":os.getenv("WEB_APPEARANCE_GATEWAY_TOKEN",""),
         "amap_config_file":os.getenv("WEB_AMAP_CONFIG_FILE","/map-provider/amap.json"),
         "model_catalog_dir":os.getenv("MODEL_CATALOG_DIR","/model-catalog"),
         "active_models":os.getenv("ACTIVE_MODELS_JSON","{}"),
@@ -148,7 +152,7 @@ def create_app(config=None, transport=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        if cfg.get('investigation') and request.url.path.rstrip('/') in {'/clues','/admin'}:
+        if cfg.get('investigation') and request.url.path.rstrip('/') in {'/clues','/admin','/map'}:
             response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self' https://webapi.amap.com https://*.amap.com; img-src 'self' data: blob: https://*.amap.com https://*.autonavi.com https://*.amap.cn; connect-src 'self' https://*.amap.com https://*.autonavi.com https://*.amap.cn; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         if cfg.get('investigation') and request.url.path=='/_maps/frame':
             response.headers['X-Frame-Options']='SAMEORIGIN'
@@ -486,6 +490,9 @@ def create_app(config=None, transport=None):
         @app.get('/image-search')
         @app.get('/image-search/')
         def appearance_page():return FileResponse(static/'index.html',media_type='text/html')
+        @app.get('/map')
+        @app.get('/map/')
+        def map_page():return FileResponse(static/'index.html',media_type='text/html')
         @app.get('/live')
         @app.get('/live/')
         def live_page():return FileResponse(static/'index.html',media_type='text/html')

@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse
 
 MAX_IMAGE_BYTES=8 * 1024 * 1024
 MAX_METADATA_BYTES=128 * 1024
-BINARY_PATHS={'/internal/v3/analyze-frame','/internal/v3/analyze-targets'}
+BINARY_PATHS={'/internal/v3/analyze-frame','/internal/v3/analyze-targets','/internal/v1/describe-appearance'}
 
 
 class BinaryInputMiddleware:

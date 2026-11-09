@@ -6,7 +6,7 @@ import MapCanvas from './MapCanvas.jsx'
 
 const empty={longitude:'',latitude:'',address:'',reason:''}
 export default function CameraGeographyPanel({refresh,onError}){
-  const [data,setData]=useState(null),[enabled,setEnabled]=useState(null),[camera,setCamera]=useState(''),[draft,setDraft]=useState(empty),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[reload,setReload]=useState(0),[mapOpen,setMapOpen]=useState(false)
+  const [data,setData]=useState(null),[enabled,setEnabled]=useState(null),[camera,setCamera]=useState(''),[draft,setDraft]=useState(empty),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[reload,setReload]=useState(0),[mapOpen,setMapOpen]=useState(true)
   const callbacks=useRef(onError),actions=useRef(null),request=useRef(null);callbacks.current=onError
   useEffect(()=>{actions.current=new AbortController();return()=>actions.current.abort()},[])
   useEffect(()=>{

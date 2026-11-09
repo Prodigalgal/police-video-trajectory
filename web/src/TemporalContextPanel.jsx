@@ -3,6 +3,7 @@ import {FloatingNotice} from './Feedback.jsx'
 import React,{useEffect,useRef,useState} from 'react'
 import {downloadInput,inputApi,previewFrame,validateContext,validateInput,validateInputPage} from './analysis-input-client.js'
 import SpecialistPanel from './SpecialistPanel.jsx'
+import NearbyRecordsPanel from './NearbyRecordsPanel.jsx'
 
 const sequenceReasons={clock_unavailable:'此帧没有可核验的片内时钟，支持保存单帧。',ambiguous_time:'同一片内时间有多帧，暂不组成序列。',insufficient_nearby_frames:'附近没有间隔在 6 秒内的其他关键帧，支持保存单帧。',sampled_sequence:'可保存当前帧所在的采样序列。采样画面不代表连续视频或同一目标。'}
 
@@ -17,7 +18,7 @@ export default function TemporalContextPanel({detail,digest,onUnauthenticated,on
   const after=cursors[cursors.length-1]
   const window={before_ms:seconds*1000,after_ms:seconds*1000,max_frames:16,max_gap_ms:6000}
   function failed(error,setError){if(error.name==='AbortError')return;setError(chineseMessage(error.message));if(error.unauthorized)onUnauthenticated()}
-  useEffect(()=>()=>actions.current.abort(),[])
+  useEffect(()=>{actions.current=new AbortController();return()=>actions.current.abort()},[])
   useEffect(()=>{
     const abort=new AbortController();setFeatureError('')
     fetch('/api/v1/features',{signal:abort.signal,cache:'no-store'}).then(async response=>{
@@ -66,10 +67,12 @@ export default function TemporalContextPanel({detail,digest,onUnauthenticated,on
   if(featureError)return <FloatingNotice className="notice error" role="alert">{featureError}<button type="button" className="text-button" onClick={()=>setFeatureRetry(n=>n+1)}>重试</button></FloatingNotice>
   if(!enabled)return null
   const anchor=context?.frames.find(frame=>frame.frame_id===detail.frame_id)
+  const recordedOnly=context?.sequence.reason==='clock_unavailable'
   return <section className="evidence-context" aria-label="附近画面与分析输入">
-    <div className="context-heading"><h3>同段附近画面</h3><label>前后窗口 <select value={seconds} onChange={event=>setSeconds(Number(event.target.value))} disabled={busy}>{[15,60,120].map(n=><option key={n} value={n}>{n} 秒</option>)}</select></label><button type="button" className="text-button" disabled={loading||busy} onClick={()=>setReload(n=>n+1)}>重新读取</button></div>
+    <div className="context-heading"><h3>{recordedOnly?'附近留存画面':'同段附近画面'}</h3>{!recordedOnly&&<label>前后窗口 <select value={seconds} onChange={event=>setSeconds(Number(event.target.value))} disabled={busy}>{[15,60,120].map(n=><option key={n} value={n}>{n} 秒</option>)}</select></label>}<button type="button" className="text-button" disabled={loading||busy} onClick={()=>setReload(n=>n+1)}>重新读取</button></div>
     {loading&&<p role="status">正在读取附近关键帧…</p>}{contextError&&<FloatingNotice className="notice error" role="alert">{contextError}</FloatingNotice>}
-    {context&&<><div className="context-frames" role="group" aria-label="选择同段关键帧">{context.frames.map(frame=><button key={frame.frame_id} type="button" className="admin-button secondary" aria-pressed={selected?.frame_id===frame.frame_id} onClick={()=>setSelected(frame.frame_id===detail.frame_id?null:frame)}>{frame.frame_id===detail.frame_id?'当前帧':`${((frame.relative_media_ms-anchor.relative_media_ms)/1000).toFixed(1)} 秒`}{frame.ambiguous_time?' · 时间重复':''}</button>)}</div>
+    {recordedOnly&&<NearbyRecordsPanel detail={detail} refresh={reload} onUnauthenticated={onUnauthenticated} onNavigate={onNavigateSource}/>}
+    {context&&!recordedOnly&&<><div className="context-frames" role="group" aria-label="选择同段关键帧">{context.frames.map(frame=><button key={frame.frame_id} type="button" className="admin-button secondary" aria-pressed={selected?.frame_id===frame.frame_id} onClick={()=>setSelected(frame.frame_id===detail.frame_id?null:frame)}>{frame.frame_id===detail.frame_id?'当前帧':`${((frame.relative_media_ms-anchor.relative_media_ms)/1000).toFixed(1)} 秒`}{frame.ambiguous_time?' · 时间重复':''}</button>)}</div>
     <p className="result-note">{sequenceReasons[context.sequence.reason]}{context.truncated?' 已达到本次 16 帧上限。':''}</p></>}
     {previewLoading&&<p role="status">正在校验所选画面…</p>}{previewError&&<FloatingNotice className="notice error" role="alert">{previewError}</FloatingNotice>}
     {preview&&<figure className="context-preview"><img src={preview} alt="所选同段邻近关键帧" onError={()=>setPreviewError('浏览器无法显示所选画面。')}/><figcaption>邻近关键帧仅供场景参考，当前线索的属性与定位框仍对应上方原图。</figcaption></figure>}

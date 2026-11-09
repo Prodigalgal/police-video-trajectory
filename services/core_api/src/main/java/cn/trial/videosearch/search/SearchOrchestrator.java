@@ -208,6 +208,19 @@ public final class SearchOrchestrator {
         return List.copyOf(sanitized);
     }
 
+    public List<Map<String,Object>> appearanceSemanticMatches(SearchPlan plan,List<String> observations){
+        var request=SearchQueryCompiler.appearanceMatches(plan,allowedCameras,observations);
+        var result=elasticsearch.post("/"+indexName+"/_search",request,elasticAuthorization,Duration.ofSeconds(20));
+        if(!(result.get("hits") instanceof Map<?,?> hits)||!(hits.get("hits") instanceof List<?> rows)||rows.size()>observations.size())throw new SecureJsonClient.UpstreamFailure();
+        var values=new ArrayList<Map<String,Object>>();
+        for(Object raw:rows){
+            if(!(raw instanceof Map<?,?> hit)||!(hit.get("_source") instanceof Map<?,?> source))throw new SecureJsonClient.UpstreamFailure();
+            var value=new LinkedHashMap<String,Object>();
+            for(String field:List.of("observation_id","record_version","frame_id","camera_id","target_type"))value.put(field,source.get(field));
+            value.put("matched_queries",hit.getOrDefault("matched_queries",null));values.add(value);
+        }return List.copyOf(values);
+    }
+
     private long totalHits(Map<String,Object> result) {
         if (result.get("hits") instanceof Map<?,?> hits && hits.get("total") instanceof Map<?,?> total &&
                 "eq".equals(total.get("relation")) && total.get("value") instanceof Number value && value.longValue() >= 0)

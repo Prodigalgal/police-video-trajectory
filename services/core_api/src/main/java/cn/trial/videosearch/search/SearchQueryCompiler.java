@@ -93,6 +93,22 @@ public final class SearchQueryCompiler {
 
     private static boolean hasText(String s) { return s != null && !s.isBlank(); }
 
+    /** Semantic assistance is a soft rerank over a bounded, independently retained visual recall. */
+    @SuppressWarnings("unchecked")
+    public static Map<String,Object> appearanceMatches(SearchPlan plan,Set<String> authorized,List<String> observations){
+        if(observations==null||observations.isEmpty()||observations.size()>1000||new java.util.HashSet<>(observations).size()!=observations.size())throw new IllegalArgumentException("Invalid appearance candidates");
+        observations.forEach(java.util.UUID::fromString);
+        var request=new LinkedHashMap<String,Object>(compile(plan,authorized,null,50));
+        var compiled=(Map<String,Object>)((Map<String,Object>)request.get("query")).get("bool");
+        var filters=new ArrayList<>((List<Map<String,Object>>)compiled.get("filter"));filters.add(Map.of("terms",Map.of("observation_id",observations)));
+        var terms=(List<Map<String,Object>>)compiled.getOrDefault("must",List.of());
+        if(terms.isEmpty())throw new IllegalArgumentException("No appearance attributes");
+        request.put("size",observations.size());request.put("track_total_hits",false);
+        request.put("query",Map.of("bool",Map.of("filter",filters,"should",terms,"minimum_should_match",1)));
+        request.put("_source",List.of("observation_id","record_version","frame_id","camera_id","target_type"));
+        return request;
+    }
+
     public static boolean hasConditions(SearchPlan plan) {
         if(!"unknown".equals(plan.targetType())||plan.start()!=null||plan.end()!=null||hasText(plan.locationText())
                 ||plan.cameraIds()!=null&&!plan.cameraIds().isEmpty()||plan.textTerms()!=null&&!plan.textTerms().isEmpty())return true;

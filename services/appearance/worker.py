@@ -92,6 +92,8 @@ class Consumer:
 
 
 async def run(once=False):
+    pause=float(os.getenv('APPEARANCE_JOB_PAUSE_SECONDS','0.2'))
+    if not math.isfinite(pause) or not .1<=pause<=10:raise ValueError('invalid appearance pacing')
     endpoint=os.environ['CORE_URL'];parsed=urlsplit(endpoint)
     if parsed.scheme!='https' or not parsed.hostname or any((parsed.username,parsed.password,parsed.query,parsed.fragment)):raise ValueError('trusted HTTPS Core URL required')
     root=os.environ['APPEARANCE_MODEL_DIR'];catalog=Catalog(os.environ['APPEARANCE_CATALOG_FILE']);catalog.current()
@@ -110,9 +112,8 @@ async def run(once=False):
                 worked=await active
             except (ServiceError,OSError,ValueError):LOG.warning('appearance_consumer_deferred');worked=False
             if once:break
-            if not worked:
-                try:await asyncio.wait_for(stop.wait(),timeout=3)
-                except TimeoutError:pass
+            try:await asyncio.wait_for(stop.wait(),timeout=pause if worked else 3)
+            except TimeoutError:pass
     finally:
         waiting.cancel()
         if active is not None and not active.done():active.cancel()

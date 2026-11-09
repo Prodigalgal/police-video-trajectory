@@ -1,10 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {validBox,validateAppearance,appearanceJson,uploadAppearance} from '../src/appearance-client.js'
+import {validBox,validateAppearance,appearanceJson,uploadAppearance,semanticStatus} from '../src/appearance-client.js'
 
 const id='12345678-1234-1234-1234-123456789012',profile='1'.repeat(64),image='2'.repeat(64)
 const expected={id,profile,image,type:'vehicle'}
 const response=()=>({schema_version:'appearance-results-v1',query_id:id,summary:{profile_sha256:profile,image_sha256:image,target_type:'vehicle'},items:[{observation_id:id,frame_id:id,target_id:id,record_version:1,camera_id:'recording-01',target_type:'vehicle',image_sha256:image,image_width:1280,image_height:720,bbox_xyxy:[0,0,100,100],similarity:.9,sightings:2,period:{clock:'relative_media',start_ms:0,end_ms:1000,association:'local_geometry_candidate'}}],offset:0,total_candidate_periods:1,has_more:false,next_offset:null})
+
+test('混合检索明确显示回退，非法语义排序不进入页面',()=>{
+  assert.match(semanticStatus({state:'timeout'}),/超时.*外观/)
+  assert.match(semanticStatus({state:'completed',semantic_matches:2,model_id:'vision'}),/2 个候选/)
+  const value=response();value.items[0].ranking={score:.9,visual_rank:1,semantic_rank:2,semantic_matches:['车身颜色 · 白色']}
+  assert.equal(validateAppearance(value,expected).items.length,1)
+  value.items[0].ranking.semantic_matches='invalid';assert.throws(()=>validateAppearance(value,expected),/不一致/)
+})
 test('目标框仅接受有界可见区域，候选必须绑定图像和向量空间',()=>{
   assert.equal(validBox([0,0,12,12],100,100),true)
   for(const box of [[-1,0,100,100],[0,0,NaN,100],[0,0,11,12]])assert.equal(validBox(box,100,100),false)

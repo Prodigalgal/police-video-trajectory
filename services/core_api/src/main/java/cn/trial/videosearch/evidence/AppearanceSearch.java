@@ -15,9 +15,9 @@ import java.util.*;
 public class AppearanceSearch {
     private static final ObjectMapper JSON=new ObjectMapper();
     private final JdbcTemplate db;private final AppearanceJobs jobs;private final AppearanceCatalog catalog;private final AppearanceSource sources;
-    private final AppearanceIndex index;private final SearchOrchestrator permissions;private final TransactionTemplate tx;
-    public AppearanceSearch(JdbcTemplate db,AppearanceJobs jobs,AppearanceCatalog catalog,AppearanceSource sources,AppearanceIndex index,SearchOrchestrator permissions,PlatformTransactionManager manager){this.db=db;this.jobs=jobs;this.catalog=catalog;this.sources=sources;this.index=index;this.permissions=permissions;tx=new TransactionTemplate(manager);}
-    public record Query(UUID requestId,String profile,String profileSha256,String imageSha256,List<Double> bbox,int imageWidth,int imageHeight,String targetType,List<String> cameras,String start,String end,List<Double> vector){}
+    private final AppearanceIndex index;private final SearchOrchestrator permissions;private final AppearanceFusion fusion;private final TransactionTemplate tx;
+    public AppearanceSearch(JdbcTemplate db,AppearanceJobs jobs,AppearanceCatalog catalog,AppearanceSource sources,AppearanceIndex index,SearchOrchestrator permissions,AppearanceFusion fusion,PlatformTransactionManager manager){this.db=db;this.jobs=jobs;this.catalog=catalog;this.sources=sources;this.index=index;this.permissions=permissions;this.fusion=fusion;tx=new TransactionTemplate(manager);}
+    public record Query(UUID requestId,String profile,String profileSha256,String imageSha256,List<Double> bbox,int imageWidth,int imageHeight,String targetType,List<String> cameras,String start,String end,List<Double> vector,AppearanceFusion.Semantic semantic){}
     public Map<String,Object> create(Query query,String actor,long revision){
         jobs.requireEnabled();if(query==null||query.requestId()==null||query.profile()==null||query.targetType()==null||!AppearanceCatalog.hex(query.imageSha256())||!Set.of("person","vehicle").contains(query.targetType()))throw new IllegalArgumentException();
         AppearanceSource.validateBox(query.bbox(),query.imageWidth(),query.imageHeight());var snapshot=catalog.current();var profile=snapshot.profiles().get(query.profile());
@@ -27,11 +27,14 @@ public class AppearanceSearch {
         if(cameras.isEmpty()||cameras.size()>50||new HashSet<>(cameras).size()!=cameras.size()||cameras.stream().anyMatch(camera->!permissions.mayReadCamera(camera)))throw new InputRejected(403,"appearance_scope_forbidden");
         cameras=cameras.stream().sorted().toList();Instant start=instant(query.start()),end=instant(query.end());
         if(start!=null&&end!=null&&start.isAfter(end))throw new IllegalArgumentException();
+        var semantic=AppearanceFusion.validated(query.semantic());
         var request=new LinkedHashMap<String,Object>();request.put("profile_sha256",profile.sha256());request.put("image_sha256",query.imageSha256());request.put("bbox_xyxy",query.bbox());request.put("image_width",query.imageWidth());request.put("image_height",query.imageHeight());request.put("target_type",query.targetType());request.put("cameras",cameras);request.put("start",query.start());request.put("end",query.end());request.put("vector_sha256",CanonicalJson.encode(query.vector(),32768).sha256());
-        String fingerprint=CanonicalJson.encode(request,8192).sha256(),scope=scope();
+        request.put("semantic",semantic);
+        String fingerprint=CanonicalJson.encode(request,16384).sha256(),scope=scope();
         var old=stored(query.requestId());if(!old.isEmpty()){check(old.getFirst(),actor,revision,fingerprint,scope);return page(query.requestId(),actor,revision,0,10);}
-        var found=index.find(profile,query.vector(),new AppearanceIndex.Filter(query.targetType(),cameras,start,end),1000);
-        var groups=group(found.candidates());var summary=new LinkedHashMap<String,Object>();summary.put("profile",profile.id());summary.put("profile_sha256",profile.sha256());summary.put("image_sha256",query.imageSha256());summary.put("target_type",query.targetType());summary.put("scanned",found.scanned());summary.put("candidate_limit",1000);summary.put("truncated",found.truncated());summary.put("cameras",cameras);summary.put("time_filter_verified_only",start!=null||end!=null);
+        var filter=new AppearanceIndex.Filter(query.targetType(),cameras,start,end);
+        var found=index.find(profile,query.vector(),filter,1000);var combined=fusion.apply(semantic,found.candidates(),filter);
+        var groups=group(found.candidates(),combined.rankings());var summary=new LinkedHashMap<String,Object>();summary.put("semantic",combined.summary());summary.put("profile",profile.id());summary.put("profile_sha256",profile.sha256());summary.put("image_sha256",query.imageSha256());summary.put("target_type",query.targetType());summary.put("scanned",found.scanned());summary.put("candidate_limit",1000);summary.put("truncated",found.truncated());summary.put("cameras",cameras);summary.put("time_filter_verified_only",start!=null||end!=null);
         String encoded=CanonicalJson.encode(groups,4*1024*1024).payload();
         tx.executeWithoutResult(status->{db.execute("SELECT pg_advisory_xact_lock(918273652)");var replay=stored(query.requestId());
             if(!replay.isEmpty()){check(replay.getFirst(),actor,revision,fingerprint,scope);return;}
@@ -66,6 +69,9 @@ public class AppearanceSearch {
     }
     public Map<String,Object> close(UUID id,String actor,long revision){jobs.requireEnabled();db.update("DELETE FROM appearance_queries WHERE query_id=? AND actor_id=? AND actor_revision=?",id,actor,revision);return Map.of("closed",true);}
     static List<Map<String,Object>> group(List<AppearanceIndex.Ranked> hits){
+        return group(hits,Map.of());
+    }
+    static List<Map<String,Object>> group(List<AppearanceIndex.Ranked> hits,Map<String,Map<String,Object>> rankings){
         var tracks=new LinkedHashMap<String,List<AppearanceIndex.Ranked>>();
         for(var hit:hits){var c=hit.clock();boolean clock=c.get("scene_run_id")!=null&&c.get("media_epoch")!=null&&c.get("relative_media_ms") instanceof Number&&!hit.track().isBlank();
             String key=clock?hit.source().get("camera_id")+":"+c.get("task_id")+":"+c.get("scene_run_id")+":"+c.get("media_epoch")+":"+hit.track():"single:"+hit.source().get("observation_id");tracks.computeIfAbsent(key,ignored->new ArrayList<>()).add(hit);}
@@ -73,18 +79,22 @@ public class AppearanceSearch {
         for(var track:tracks.values()){
             track.sort(Comparator.comparingLong(hit->millis(hit.clock())));var segment=new ArrayList<Map<String,Object>>();long previous=-1,first=-1;
             for(var hit:track){long position=millis(hit.clock());if(!segment.isEmpty()&&(position-previous>5500||position-first>300000||segment.size()>=50)){groups.add(Map.of("sightings",List.copyOf(segment)));segment.clear();}
-                if(segment.isEmpty())first=position;segment.add(Map.of("source",hit.source(),"clock",hit.clock(),"score",hit.score()));previous=position;}
+                if(segment.isEmpty())first=position;
+                var sight=new LinkedHashMap<String,Object>();sight.put("source",hit.source());sight.put("clock",hit.clock());sight.put("score",hit.score());
+                var ranking=rankings.get((String)hit.source().get("observation_id"));if(ranking!=null){sight.put("rank_score",ranking.get("score"));sight.put("ranking",ranking);}segment.add(sight);previous=position;}
             if(!segment.isEmpty())groups.add(Map.of("sightings",List.copyOf(segment)));
         }
         groups.sort(Comparator.<Map<String,Object>>comparingDouble(group->-best(group)).thenComparing(group->firstId(group)));return List.copyOf(groups);
     }
     private static long millis(Map<String,Object> clock){return clock.get("relative_media_ms") instanceof Number value?value.longValue():0;}
-    private static double best(Map<String,Object> group){return ((List<?>)group.get("sightings")).stream().map(AppearanceCatalog::object).mapToDouble(sight->((Number)sight.get("score")).doubleValue()).max().orElse(-1);}
+    private static double rankScore(Map<String,Object> sight){return ((Number)sight.getOrDefault("rank_score",sight.get("score"))).doubleValue();}
+    private static double best(Map<String,Object> group){return ((List<?>)group.get("sightings")).stream().map(AppearanceCatalog::object).mapToDouble(AppearanceSearch::rankScore).max().orElse(-1);}
     private static String firstId(Map<String,Object> group){return (String)AppearanceCatalog.object(AppearanceCatalog.object(((List<?>)group.get("sightings")).getFirst()).get("source")).get("observation_id");}
     static Map<String,Object> external(List<Map<String,Object>> sightings){
-        var sorted=new ArrayList<>(sightings);sorted.sort(Comparator.comparingDouble(sight->-((Number)sight.get("score")).doubleValue()));
+        var sorted=new ArrayList<>(sightings);sorted.sort(Comparator.comparingDouble(sight->-rankScore(sight)));
         var chosen=sorted.getFirst();var source=AppearanceCatalog.object(chosen.get("source"));var clock=AppearanceCatalog.object(chosen.get("clock"));
         var value=new LinkedHashMap<>(source);value.remove("frame_fingerprint");value.remove("anchor_fingerprint");value.put("similarity",chosen.get("score"));value.put("sightings",sightings.size());
+        if(chosen.containsKey("ranking"))value.put("ranking",chosen.get("ranking"));
         value.put("source_time",clock.get("source_time"));value.put("source_time_origin",clock.get("source_time_origin"));value.put("received_at",clock.get("received_at"));value.put("media_offset_ms",clock.get("media_offset_ms"));
         var first=AppearanceCatalog.object(sightings.getFirst().get("clock"));var last=AppearanceCatalog.object(sightings.getLast().get("clock"));
         boolean known=first.get("relative_media_ms") instanceof Number&&last.get("relative_media_ms") instanceof Number;

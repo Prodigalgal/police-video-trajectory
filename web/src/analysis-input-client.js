@@ -58,11 +58,12 @@ export async function readBounded(response,maxBytes){
   for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength}return bytes.buffer
 }
 export async function previewFrame(frame,signal){
-  if(!sha.test(frame.registered_payload_sha256||''))throw new Error('该旧帧缺少登记摘要，暂不能核验预览。')
+  const expected=frame.preview_sha256??frame.registered_payload_sha256
+  if(!sha.test(expected||''))throw new Error('该画面缺少可核验摘要，请刷新后重试。')
   const response=await fetch(`/api/v1/frames/${frame.frame_id}/image`,{cache:'no-store',signal})
   if(!response.ok)throw await errorFor(response)
   const bytes=await readBounded(response,8*1024*1024)
-  if(await verifyEvidenceDigest(bytes,frame.registered_payload_sha256)!=='valid')throw new Error('当前浏览器无法完成画面摘要校验。')
+  if(await verifyEvidenceDigest(bytes,expected)!=='valid')throw new Error('当前浏览器无法完成画面摘要校验。')
   return new Blob([bytes],{type:'image/jpeg'})
 }
 export async function downloadInput(input,signal){
