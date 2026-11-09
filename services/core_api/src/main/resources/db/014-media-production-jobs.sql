@@ -1,4 +1,4 @@
--- Application version: 0.24.0. Independent archive media work; no inference or observations.
+-- Application version: 0.24.1. Independent archive media work; no inference or observations.
 CREATE TABLE IF NOT EXISTS media_production_jobs (
     job_id uuid PRIMARY KEY,
     source_id uuid NOT NULL REFERENCES sources(source_id),

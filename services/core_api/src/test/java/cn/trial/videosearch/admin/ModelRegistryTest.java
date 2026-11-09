@@ -3,6 +3,8 @@ package cn.trial.videosearch.admin;
 import org.junit.jupiter.api.Test;
 import cn.trial.videosearch.support.ActorAccess;
 import cn.trial.videosearch.support.BusinessEndpoint;
+import cn.trial.videosearch.support.CanonicalJson;
+import org.springframework.jdbc.core.JdbcTemplate;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -33,5 +35,17 @@ class ModelRegistryTest {
         when(users.status("reader",2)).thenReturn(Map.of("valid",false));assertEquals(401,controller.list("Bearer admin-fixture","reader",2L).block().getStatusCode().value());
         when(registry.runtime()).thenReturn(Map.of("revision",1));
         assertEquals(200,controller.runtime("Bearer reader-fixture").block().getStatusCode().value());
+    }
+    @Test void runtimeRejectsRevokedProviderRoleOrProtocolForPreviouslySavedRevision(){
+        var db=mock(JdbcTemplate.class);var providers=mock(ModelProviders.class);var registry=new ModelRegistry(db,mock(UserService.class),providers);
+        var binding=Map.of("profile_id",UUID.randomUUID().toString(),"version",1,"definition",Map.of("provider","approved","base_url","https://provider.invalid/v1","credential_file","provider.token","protocol","responses"));
+        var bindings=new LinkedHashMap<String,Object>();bindings.put("text",null);bindings.put("vision",binding);
+        when(db.queryForMap("SELECT revision,bindings::text,updated_at FROM model_bindings WHERE singleton")).thenReturn(Map.of("revision",1L,"bindings",CanonicalJson.encode(bindings,8192).payload()));
+        when(providers.current()).thenReturn(List.of(new ModelProviders.Provider("approved","已配置","https://provider.invalid/v1","provider.token",Set.of("responses"),Set.of("text"),true)));
+        assertThrows(AdminService.Rejected.class,registry::runtime);
+        when(providers.current()).thenReturn(List.of(new ModelProviders.Provider("approved","已配置","https://provider.invalid/v1","provider.token",Set.of("chat_completions"),Set.of("vision"),true)));
+        assertThrows(AdminService.Rejected.class,registry::runtime);
+        when(providers.current()).thenReturn(List.of(new ModelProviders.Provider("approved","已配置","https://provider.invalid/v1","provider.token",Set.of("responses"),Set.of("vision"),true)));
+        assertEquals(1L,registry.runtime().get("revision"));
     }
 }

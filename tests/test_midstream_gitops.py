@@ -1,5 +1,4 @@
 import json
-import importlib.util
 from pathlib import Path
 import sys
 import yaml
@@ -20,6 +19,8 @@ def test_middle_modules_are_bounded_and_keep_operator_pause_and_private_bindings
             'selector':{'matchLabels':{'app':name}},'template':{'metadata':{'labels':{'app':name}},'spec':{'containers':[container],
                 'volumes':[{'name':'core-ca','secret':{'secretName':'core-private'}}],'automountServiceAccountToken':False}}}})
     (tmp_path/'kustomization.yaml').write_text('resources: []\n')
+    save('model-provider-registry',{'data':{'providers.json':json.dumps({'providers':[{'credential_file':'approved.token','activation_allowed':True},{'credential_file':'saved.token','activation_allowed':False}]}),
+        'credential-projection.json':json.dumps({'defaultMode':288,'sources':[{'secret':{'name':'approved','items':[{'key':'token','path':'approved.token'}]}},{'secret':{'name':'saved','items':[{'key':'token','path':'saved.token'}]}}]})}})
     configure(tmp_path,'runtime@sha256:fixture','0.24.0','revision','build')
     worker=load('specialist-worker');assert worker['spec']['replicas']==1 and worker['spec']['revisionHistoryLimit']==0
     worker['spec']['replicas']=0;save('specialist-worker',worker)
@@ -30,6 +31,8 @@ def test_middle_modules_are_bounded_and_keep_operator_pause_and_private_bindings
     assert once=={p.name:p.read_bytes() for p in directory.glob('*.json')}
     assert load('specialist-worker')['spec']['replicas']==0 and load('analysis-worker')['spec']['replicas']==0
     assert load('specialist-processing-catalog')['data']['operator_note']=='retained'
+    credential_volume=next(entry for entry in load('ai-gateway')['spec']['template']['spec']['volumes'] if entry['name']=='model-credentials')
+    assert [entry['path'] for source in credential_volume['projected']['sources'] for entry in source['secret']['items']]==['approved.token']
     native=load('specialist-service')['spec']['template']['spec'];container=native['containers'][0]
     assert not native['automountServiceAccountToken'] and container['resources']['limits']['cpu']=='1000m'
     assert container['readinessProbe']['httpGet']['scheme']=='HTTPS'

@@ -4,6 +4,7 @@ import cn.trial.videosearch.support.CanonicalJson;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import tools.jackson.databind.ObjectMapper;
 import java.util.*;
 import java.sql.Timestamp;
@@ -48,6 +49,7 @@ public class ModelRegistry {
         db.update("INSERT INTO model_changes(request_id,request_sha256,response) VALUES(?,?,?::jsonb)",request,sha,encoded(response));
         db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,?,?,?)",actor,action,"配置修订已保存",request);return response;
     }
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Map<String,Object> list(){
         var available=providers.current();var profiles=new ArrayList<Map<String,Object>>();
         for(var row:db.queryForList("SELECT profile_id,version,definition::text,created_at FROM model_profiles ORDER BY created_at DESC,profile_id,version DESC LIMIT 513")){
@@ -89,7 +91,7 @@ public class ModelRegistry {
             var rows=db.queryForList("SELECT definition::text FROM model_profiles WHERE profile_id=? AND version=?",selection.profile_id(),selection.version());
             if(rows.size()!=1)throw new AdminService.Rejected(404,"model_profile_unavailable");
             var definition=object(rows.getFirst().get("definition"));var provider=provider((String)definition.get("provider"),available);
-            if(!provider.activationAllowed()||!((List<?>)definition.get("roles")).contains(role)||!provider.roles().contains(role)||!provider.baseUrl().equals(definition.get("base_url"))||!provider.credentialFile().equals(definition.get("credential_file")))throw new AdminService.Rejected(409,"model_activation_forbidden");
+            if(!provider.activationAllowed()||!((List<?>)definition.get("roles")).contains(role)||!provider.roles().contains(role)||!provider.protocols().contains(definition.get("protocol"))||!provider.baseUrl().equals(definition.get("base_url"))||!provider.credentialFile().equals(definition.get("credential_file")))throw new AdminService.Rejected(409,"model_activation_forbidden");
             bindings.put(role,Map.of("profile_id",selection.profile_id().toString(),"version",selection.version(),"definition",definition));
         }
         db.update("UPDATE model_bindings SET revision=revision+1,bindings=?::jsonb,updated_at=clock_timestamp() WHERE singleton",encoded(bindings));
@@ -100,7 +102,7 @@ public class ModelRegistry {
         var available=providers.current();
         for(var entry:bindings.entrySet())if(entry.getValue() instanceof Map<?,?> binding){
             var definition=(Map<?,?>)binding.get("definition");var provider=provider((String)definition.get("provider"),available);
-            if(!provider.activationAllowed()||!provider.baseUrl().equals(definition.get("base_url"))||!provider.credentialFile().equals(definition.get("credential_file")))throw new AdminService.Rejected(503,"model_provider_unavailable");
+            if(!provider.activationAllowed()||!provider.roles().contains(entry.getKey())||!provider.protocols().contains(definition.get("protocol"))||!provider.baseUrl().equals(definition.get("base_url"))||!provider.credentialFile().equals(definition.get("credential_file")))throw new AdminService.Rejected(503,"model_provider_unavailable");
         }
         var result=new LinkedHashMap<String,Object>();result.put("schema_version","model-bindings-v1");result.put("revision",revision);result.put("managed",revision>0);result.put("bindings",bindings);result.put("sha256",CanonicalJson.encode(Map.of("revision",revision,"bindings",bindings),131072).sha256());return result;
     }

@@ -24,6 +24,19 @@ def configure(app_root,runtime,version,revision,run):
     registry=json.loads(registry_file.read_text()) if registry_file.exists() else {}
     projection=registry.get('data',{}).get('credential-projection.json')
     credentials={'projected':json.loads(projection)} if projection else {'secret':{'secretName':'model-provider-credentials','defaultMode':0o440}}
+    if projection:
+        allowed={provider['credential_file'] for provider in json.loads(registry['data']['providers.json'])['providers'] if provider['activation_allowed'] is True}
+        projected=credentials['projected'];sources=[]
+        for source_ref in projected['sources']:
+            source_ref=deepcopy(source_ref)
+            source_ref['secret']['items']=[entry for entry in source_ref['secret']['items'] if entry['path'] in allowed]
+            if source_ref['secret']['items']:sources.append(source_ref)
+        projected['sources']=sources
+        if not sources:credentials={'emptyDir':{'sizeLimit':'1Mi'}}
+        # This mount is derived from the operations-owned registry, including revocations.
+        for entry in gateway_pod.get('volumes',[]):
+            if entry['name']=='model-credentials':
+                entry.clear();entry.update({'name':'model-credentials',**deepcopy(credentials)})
     volume(gateway_pod,'model-credentials',credentials,'/model-credentials')
     environment(gateway_container,'MODEL_CONTROL_URL',next(value['value'] for value in analysis['spec']['template']['spec']['containers'][0]['env'] if value['name']=='CORE_URL'))
     environment(gateway_container,'MODEL_CONTROL_CA_FILE','/core-ca/ca.crt')

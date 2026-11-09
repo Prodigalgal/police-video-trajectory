@@ -1,4 +1,4 @@
--- Application version: 0.24.0. Candidate submission ledger; no inference or semantic writes.
+-- Application version: 0.24.1. Candidate submission ledger; no inference or semantic writes.
 CREATE TABLE IF NOT EXISTS specialist_candidates (
  candidate_id uuid PRIMARY KEY,frame_id uuid NOT NULL UNIQUE REFERENCES capture_outbox(frame_id),
  camera_id text NOT NULL REFERENCES cameras(camera_id),target_id uuid REFERENCES detected_targets(target_id),
