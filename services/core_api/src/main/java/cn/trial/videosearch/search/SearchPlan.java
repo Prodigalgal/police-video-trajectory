@@ -14,7 +14,16 @@ public record SearchPlan(
         List<String> cameraIds,
         Attributes attributes,
         List<String> textTerms,
-        List<String> clarifications) {
+        List<String> clarifications,
+        String plateNumber) {
+
+    public SearchPlan {
+        if (plateNumber != null) plateNumber=PlateNumbers.normalize(plateNumber);
+    }
+    public SearchPlan(String targetType,Instant start,Instant end,String locationText,List<String> cameraIds,
+                      Attributes attributes,List<String> textTerms,List<String> clarifications) {
+        this(targetType,start,end,locationText,cameraIds,attributes,textTerms,clarifications,null);
+    }
 
     public record Attributes(String upperColor, String lowerColor, String clothingColor,
                              List<String> carrying, String transportType, String visibleAction,String vehicleColor) {

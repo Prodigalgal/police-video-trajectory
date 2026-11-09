@@ -12,6 +12,17 @@ SETTINGS = {"access_token": "browser-token", "session_secret": "session-secret",
             "core_url": "https://core.invalid", "core_ca": "unused", "origin": ORIGIN, "static_dir": "missing"}
 
 
+def test_changed_plate_snapshot_preserves_conflict_without_forwarding_private_fields():
+    def core(request):
+        assert request.url.path == '/api/v1/search'
+        return httpx.Response(409, json={'code': 'plate_search_changed', 'private': 'do-not-forward'})
+    with TestClient(create_app(SETTINGS, httpx.MockTransport(core)), base_url=ORIGIN) as client:
+        client.post('/api/session', headers={'Origin': ORIGIN}, json={'token': 'browser-token'})
+        response = client.post('/api/v1/search', headers={'Origin': ORIGIN}, json={'query': '完整车牌', 'cursor': 'opaque-signed-cursor'})
+        assert response.status_code == 409 and response.json()['code'] == 'plate_search_changed'
+        assert 'do-not-forward' not in response.text
+
+
 def test_pagination_preserves_signed_cursor_errors_and_authenticated_cleanup():
     calls=[]
     def core(req):

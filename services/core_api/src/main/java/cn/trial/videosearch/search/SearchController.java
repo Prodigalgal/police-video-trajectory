@@ -37,7 +37,7 @@ public final class SearchController {
         return Mono.fromCallable(() -> ResponseEntity.ok(search.search(request.query(),request.pageSize()==null?20:request.pageSize(),request.cursor(),request.adjustment(),request.mode()==null?"natural":request.mode())))
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(SearchContextCodec.Invalid.class,e->Mono.just(ResponseEntity.status(e.code.equals("search_context_expired")?410:400).body(Map.of("code",e.code,"detail","查询条件已过期或变化，请重新搜索"))))
-                .onErrorResume(SearchCursorCodec.Invalid.class,e->Mono.just(ResponseEntity.status(e.code.equals("search_cursor_expired")?410:400).body(Map.of("code",e.code,"detail","翻页会话已过期或无效，请重新搜索"))))
+                .onErrorResume(SearchCursorCodec.Invalid.class,e->Mono.just(ResponseEntity.status(e.code.equals("plate_search_changed")?409:e.code.equals("search_cursor_expired")?410:400).body(Map.of("code",e.code,"detail",e.code.equals("plate_search_changed")?"车牌复核或来源已变化，请重新搜索":"翻页会话已过期或无效，请重新搜索"))))
                 .onErrorResume(IllegalArgumentException.class, e -> Mono.just(ResponseEntity.badRequest().body(Map.of("detail", "查询内容无效"))))
                 .onErrorResume(SearchOrchestrator.SearchFailure.class, e -> Mono.just(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("detail", "检索依赖暂不可用", "code", e.code()))))
                 .onErrorResume(SecureJsonClient.UpstreamFailure.class, e -> Mono.just(ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("detail", "检索依赖暂不可用"))))

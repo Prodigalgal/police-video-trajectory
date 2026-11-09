@@ -21,7 +21,7 @@ export default function PlateReviewPanel({job,artifact,region,bindingKey,ready,o
     }catch(reason){if(!abort.signal.aborted){setError(chineseMessage(reason.message));if(reason.unauthorized)onUnauthenticated()}}
     finally{if(!abort.signal.aborted){setBusy(false);onBusyChange(false)}}
   }
-  return <section className="plate-review-panel" aria-label="车牌结果复核"><h4 className="help-heading">车牌区域复核<InfoBubble title="使用与限制说明"><p className="result-note">{review.state==='confirmed'?'所选区域已确认，可作为同一连续候选片段的结果引用。':review.state==='revoked'?'确认已撤销，后续不再据此复用。':'模型结果尚未人工确认。'} 不自动写入其他画面或建立跨点位身份。</p></InfoBubble></h4>
+  return <section className="plate-review-panel" aria-label="车牌结果复核"><h4 className="help-heading">车牌区域复核<InfoBubble title="使用与限制说明"><p className="result-note">{review.state==='confirmed'?'所选区域已确认，将按其核验范围建立精确检索依据。':review.state==='revoked'?'确认已撤销，后续不再据此复用。':'模型结果尚未人工确认。'} 不自动写入其他画面或建立跨点位身份。</p></InfoBubble></h4>
     
     <div className="help-heading">当前复核：区域 {region+1}{!ready&&<InfoBubble title="暂不能确认的原因">请先显示已核验原图并选择与入队牌面相对应的区域。旧服务缺少区域归属依据时只能查看，不能在此确认。</InfoBubble>}</div>
     <label className="result-note"><input type="checkbox" checked={checked} disabled={busy||!ready} onChange={event=>setAcknowledged(event.target.checked?bindingKey:null)}/>我已核对原始画面，确认该区域完整牌号与画面一致</label>

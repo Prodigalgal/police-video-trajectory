@@ -283,8 +283,8 @@ def create_app(config=None, transport=None):
                 if not 200 <= upstream.status_code < 300:
                     code = result.get("code")
                     safe = {"detail": "检索依赖暂不可用"}
-                    recoverable={"search_cursor_expired","invalid_search_cursor","search_context_expired","invalid_search_context","invalid_search_adjustment","search_scope_changed"}
-                    if isinstance(code, str) and code in {"model_unavailable", "invalid_model_plan", "invalid_search_scope", "search_backend_unavailable"}|recoverable:
+                    recoverable={"search_cursor_expired","invalid_search_cursor","search_context_expired","invalid_search_context","invalid_search_adjustment","search_scope_changed","plate_search_changed"}
+                    if isinstance(code, str) and code in {"model_unavailable", "invalid_model_plan", "invalid_search_scope", "search_backend_unavailable","reviewed_plate_search_disabled"}|recoverable:
                         safe["code"] = code
                     return JSONResponse(safe, status_code=upstream.status_code if code in recoverable else 502)
                 return JSONResponse(result, status_code=upstream.status_code)

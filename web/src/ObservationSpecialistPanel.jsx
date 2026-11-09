@@ -7,7 +7,7 @@ import {operationNames,specialistApi,specialistFailures} from './specialist-clie
 import {specialistCursor,validateObservationSpecialists} from './observation-specialists.js'
 import SpecialistPanel from './SpecialistPanel.jsx'
 
-export default function ObservationSpecialistPanel({detail,onUnauthenticated,onNavigateSource}){
+export default function ObservationSpecialistPanel({detail,onUnauthenticated,onNavigateSource,onReviewChanged}){
   const [open,setOpen]=useState(false),[page,setPage]=useState(null),[cursors,setCursors]=useState([null])
   const [loading,setLoading]=useState(false),[error,setError]=useState(''),[refresh,setRefresh]=useState(0),[selected,setSelected]=useState(null)
   const report=useRef(onUnauthenticated);report.current=onUnauthenticated
@@ -43,6 +43,6 @@ export default function ObservationSpecialistPanel({detail,onUnauthenticated,onN
       {entry.input.source_status==='stale'?<><span className="admin-badge">旧版本输入</span><InfoBubble title="旧版本来源">该输入来自线索的旧版本，不能当作当前结果继续复核。请使用当前原图重新保存输入。</InfoBubble></>:<button className="text-button" type="button" onClick={()=>select(entry)}>{selected?.job.job_id===entry.job.job_id?'收起识别详情':entry.job.state==='completed'?'查看识别结果':'查看识别任务'}</button>}
     </div></li>)}</ul>{!page.items.length&&<p className="result-note">本线索尚无已登记的专用任务，可在保存原始单帧后按需提交。</p>}
     <div className="admin-list-paging"><button type="button" className="text-button" disabled={loading||cursors.length===1} onClick={()=>navigate(values=>values.slice(0,-1))}>上一页专用任务</button><span>第 {cursors.length} 页</span><button type="button" className="text-button" disabled={loading||!page.has_more} onClick={()=>navigate(values=>[...values,specialistCursor(page.items.at(-1))])}>下一页专用任务</button></div></>}
-    {selected&&<SpecialistPanel key={selected.job.job_id} input={selected.input} initialJob={selected.job} onUnauthenticated={onUnauthenticated} onNavigateSource={onNavigateSource}/>}
+    {selected&&<SpecialistPanel onReviewChanged={onReviewChanged} key={selected.job.job_id} input={selected.input} initialJob={selected.job} onUnauthenticated={onUnauthenticated} onNavigateSource={onNavigateSource}/>}
   </>}</section>
 }

@@ -16,7 +16,7 @@ public final class MediaDatabaseCheck {
     private static final ObjectMapper JSON=new ObjectMapper();
     private static void check(boolean value,String message){if(!value)throw new IllegalStateException(message);}
     private static void rejected(Runnable operation,String code){try{operation.run();throw new IllegalStateException("expected rejection: "+code);}catch(InputRejected error){check(code.equals(error.code),"rejection differs: "+error.code);}}
-    private static SearchOrchestrator search(JdbcTemplate db,String cameras){return new SearchOrchestrator(db,"https://disabled.invalid","/database-ca/ca.crt","disabled","https://disabled.invalid","/database-ca/ca.crt","disabled","disabled","disabled",cameras,"police-video-observations-media-check");}
+    private static SearchOrchestrator search(JdbcTemplate db,String cameras){return new SearchOrchestrator(db,"https://disabled.invalid","/database-ca/ca.crt","disabled","https://disabled.invalid","/database-ca/ca.crt","disabled","disabled","disabled",cameras,"police-video-observations-media-check",new cn.trial.videosearch.evidence.ReviewedPlateFacts(db,false));}
     private static MediaClips.Register command(Map<String,Object> record){return new MediaClips.Register(UUID.fromString((String)record.get("clip_id")),(String)record.get("manifest_sha256"),"media-check");}
     public static void main(String[] args)throws Exception{
         String schema=System.getenv("EVAL_QUEUE_SCHEMA");check(schema!=null&&schema.matches("queue_check_[0-9]{8}t[0-9]{6}z_[0-9a-f]{8}"),"private schema required");

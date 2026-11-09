@@ -18,7 +18,7 @@ public final class InputDatabaseCheck {
         try{operation.run();throw new IllegalStateException("expected rejection: "+code);}
         catch(InputRejected error){check(code.equals(error.code),"rejection differs: "+error.code);}
     }
-    private static SearchOrchestrator search(JdbcTemplate db,String cameras){return new SearchOrchestrator(db,"https://disabled.invalid","/database-ca/ca.crt","disabled","https://disabled.invalid","/database-ca/ca.crt","disabled","disabled","disabled",cameras,"police-video-observations-input-check");}
+    private static SearchOrchestrator search(JdbcTemplate db,String cameras){return new SearchOrchestrator(db,"https://disabled.invalid","/database-ca/ca.crt","disabled","https://disabled.invalid","/database-ca/ca.crt","disabled","disabled","disabled",cameras,"police-video-observations-input-check",new cn.trial.videosearch.evidence.ReviewedPlateFacts(db,false));}
     private static AnalysisInputs.Create command(UUID request,Map<String,Object> observation,String digest,String purpose){return new AnalysisInputs.Create(request,(UUID)observation.get("observation_id"),((Number)observation.get("record_version")).longValue(),digest,purpose,null);}
     public static void main(String[] args)throws Exception{
         String schema=System.getenv("EVAL_QUEUE_SCHEMA");check(schema!=null&&schema.matches("queue_check_[0-9]{8}t[0-9]{6}z_[0-9a-f]{8}"),"private schema required");
@@ -91,7 +91,7 @@ public final class InputDatabaseCheck {
         db.update("INSERT INTO capture_outbox SELECT * FROM restore_captures WHERE frame_id=?",frame);db.update("INSERT INTO detected_targets SELECT * FROM restore_targets WHERE frame_id=?",frame);db.update("INSERT INTO analysis_modules SELECT * FROM restore_modules WHERE frame_id=?",frame);
         inputs.verify(input,frame);check(oldObservations==db.queryForObject("SELECT count(*) FROM observations",Long.class)&&oldModules==db.queryForObject("SELECT count(*) FROM analysis_modules",Long.class),"existing semantics changed");
         check(db.queryForObject("SELECT count(*) FROM analysis_result_sources",Long.class)==0&&db.queryForObject("SELECT count(*) FROM analysis_module_jobs",Long.class)==0&&db.queryForObject("SELECT count(*) FROM index_outbox",Long.class)==0,"input save fabricated analysis or index work");checks.add("old_semantics_preserved_and_no_inference_or_index_jobs_created");
-        var fixtures=new ArrayList<Map<String,Object>>();var details=new ObservationDetails(db,search,files,new FrameRecordings(db,search,new StreamRecordingFiles("/recordings-live"),files,manager,false),"/recordings");
+        var fixtures=new ArrayList<Map<String,Object>>();var details=new ObservationDetails(db,search,files,new FrameRecordings(db,search,new StreamRecordingFiles("/recordings-live"),files,manager,false),"/recordings",new cn.trial.videosearch.evidence.ReviewedPlateFacts(db,false));
         for(int number=0;number<observations.size();number++){
             var observed=observations.get(number);UUID identity=(UUID)observed.get("observation_id");UUID savedInput=inputIds.get(number);
             fixtures.add(Map.of("detail",details.read(identity).orElseThrow(),"context",temporal.context(identity,null,TemporalWindow.defaults()).view(),"input",inputs.read(savedInput),"manifest",inputs.verify(savedInput,null).payload()));

@@ -17,10 +17,11 @@ public class ObservationDetails {
     private final SearchOrchestrator search;
     private final EvidenceFiles files;
     private final FrameRecordings recordings;
+    private final ReviewedPlateFacts plates;
     private final Path archives;
     private static final ObjectMapper JSON=new ObjectMapper();
-    public ObservationDetails(JdbcTemplate db,SearchOrchestrator search,EvidenceFiles files,FrameRecordings recordings,@Value("${VIDEO_ARCHIVE_DIR:/recordings}") String archives) {
-        this.db=db;this.search=search;this.files=files;this.recordings=recordings;this.archives=Path.of(archives).toAbsolutePath().normalize();
+    public ObservationDetails(JdbcTemplate db,SearchOrchestrator search,EvidenceFiles files,FrameRecordings recordings,@Value("${VIDEO_ARCHIVE_DIR:/recordings}") String archives,ReviewedPlateFacts plates) {
+        this.db=db;this.search=search;this.files=files;this.recordings=recordings;this.plates=plates;this.archives=Path.of(archives).toAbsolutePath().normalize();
     }
     @SuppressWarnings("unchecked")
     public Optional<Map<String,Object>> read(UUID id) throws Exception {
@@ -46,6 +47,7 @@ public class ObservationDetails {
             var result=new LinkedHashMap<String,Object>();
             for(String key:List.of("observation_id","frame_id","camera_id","target_type","description","model_id","prompt_version","record_version","source_type","source_time_origin","media_offset_ms")) result.put(key,row.get(key));
             result.put("camera_name",row.get("display_name"));
+            if(plates.enabled())result.put("reviewed_plate",plates.details(id,((Number)row.get("record_version")).longValue()));
             for(String key:List.of("source_time","received_at")) result.put(key,row.get(key) instanceof Timestamp time?time.toInstant().toString():null);
             Map<String,Object> attributes=JSON.readValue((String)row.get("attributes_text"),Map.class);
             List<String> uncertain=JSON.readValue((String)row.get("uncertain_text"),List.class);

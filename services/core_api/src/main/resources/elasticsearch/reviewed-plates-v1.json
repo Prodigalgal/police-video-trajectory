@@ -1,0 +1,7 @@
+{
+  "reviewed_plate_number": {"type": "keyword"},
+  "plate_projection_revision": {"type": "long"},
+  "plate_fact_sha256": {"type": "keyword", "index": false},
+  "plate_projection_outcome": {"type": "keyword"},
+  "plate_proofs": {"type": "object", "enabled": false}
+}

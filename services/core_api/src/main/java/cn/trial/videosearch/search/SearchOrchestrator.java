@@ -1,6 +1,8 @@
 package cn.trial.videosearch.search;
 
 import cn.trial.videosearch.http.SecureJsonClient;
+import cn.trial.videosearch.evidence.ReviewedPlateFacts;
+import cn.trial.videosearch.index.ReviewedPlatePublisher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -23,7 +25,8 @@ import java.util.UUID;
 public final class SearchOrchestrator {
     private static final Set<String> RESULT_FIELDS = Set.of("observation_id", "frame_id", "camera_id", "target_type", "bbox_xyxy", "uncertain_fields", "source_type", "media_offset_ms",
             "source_time_origin", "source_time", "received_at", "upper_color", "lower_color", "vehicle_color", "carrying", "transport_type",
-            "visible_action", "description", "model_id", "prompt_version", "record_version", "target_id", "track_id", "detector_class", "detector_confidence", "association");
+            "visible_action", "description", "model_id", "prompt_version", "record_version", "target_id", "track_id", "detector_class", "detector_confidence", "association",
+            "reviewed_plate_number", "plate_projection_revision", "plate_fact_sha256", "plate_proofs");
     private final JdbcTemplate database;
     private final SecureJsonClient gateway;
     private final SecureJsonClient elasticsearch;
@@ -34,6 +37,8 @@ public final class SearchOrchestrator {
     private final String indexName;
     private final SearchCursorCodec cursorCodec;
     private final SearchPaging paging;
+    private final SearchPaging platePaging;
+    private final ReviewedPlateFacts plateFacts;
     private final SearchContextCodec contextCodec;
     private final SearchGuidance guidance;
 
@@ -43,7 +48,7 @@ public final class SearchOrchestrator {
             @Value("${VIDEO_ES_CA:}") String esCa, @Value("${VIDEO_ES_USER:}") String esUser,
             @Value("${VIDEO_ES_PASSWORD:}") String esPassword, @Value("${VIDEO_SEARCH_TOKEN:}") String token,
             @Value("${VIDEO_ALLOWED_CAMERAS:}") String cameras,
-            @Value("${VIDEO_ES_INDEX:police-video-observations}") String indexName) {
+            @Value("${VIDEO_ES_INDEX:police-video-observations}") String indexName,ReviewedPlateFacts plateFacts) {
         if (gatewayToken.isBlank() || esUser.isBlank() || esPassword.isBlank() || token.isBlank()) {
             throw new IllegalArgumentException("trial service credentials must be configured");
         }
@@ -64,6 +69,8 @@ public final class SearchOrchestrator {
         String namespace=indexName+":"+String.join(",",new java.util.TreeSet<>(allowedCameras));
         this.cursorCodec = new SearchCursorCodec(token,namespace);
         this.paging = new SearchPaging(elasticsearch,elasticAuthorization,this.indexName,cursorCodec);
+        this.platePaging=new SearchPaging(elasticsearch,elasticAuthorization,ReviewedPlatePublisher.indexName(this.indexName),cursorCodec);
+        this.plateFacts=plateFacts;
         this.contextCodec=new SearchContextCodec(token,namespace);
         this.guidance=new SearchGuidance(database,allowedCameras,contextCodec);
     }
@@ -124,15 +131,22 @@ public final class SearchOrchestrator {
             long total;
             Map<String,Object> pagination;
             try {
-                var page = paging.fetch(input,plan,query,pageSize,continuation,previous==null?null:previous.expires());
-                hits = SearchMatchEvidence.annotate(safeHits(page.result()), plan);
+                if(plan.plateNumber()!=null&&!plateFacts.enabled())throw new SearchFailure("reviewed_plate_search_disabled");
+                var selected=plan.plateNumber()==null?paging:platePaging;
+                var page = selected.fetch(input,plan,query,pageSize,continuation,previous==null?null:previous.expires());
+                var safe=safeHits(page.result());
+                if(plan.plateNumber()!=null){
+                    try{plateFacts.validateHits(safe,plan.plateNumber());}
+                    catch(RuntimeException invalid){selected.discard(input,page);throw invalid;}
+                }
+                hits = SearchMatchEvidence.annotate(safe, plan);
                 total = totalHits(page.result());pagination=page.pagination();
             } catch (SecureJsonClient.UpstreamFailure e) { throw new SearchFailure("search_backend_unavailable"); }
             if(total==0)searchGuidance.put("reason","no_matches");
             outcome = "ok";
             return Map.of("request_id", requestId.toString(), "status", "ok", "plan", plan, "results", hits, "total", total, "query", input.strip(),
                     "pagination", pagination,
-                    "retrieval", SearchMatchEvidence.summary(hits),
+                    "retrieval", SearchMatchEvidence.summary(hits,plan),
                     "coverage", Map.of("status", "unknown", "message", "尚未确认全部视频的处理和索引覆盖范围"),
                     "guidance",searchGuidance);
         } finally {
@@ -147,6 +161,16 @@ public final class SearchOrchestrator {
     }
 
     private SearchPlan initialPlan(String input,String mode) {
+        var plate=PlateNumbers.extract(input);
+        if(!plate.questions().isEmpty())return new SearchPlan("unknown",null,null,null,List.of(),null,List.of(),plate.questions());
+        if(plate.number()!=null){
+            SearchPlan plan=plate.remainder().isBlank()?new SearchPlan("vehicle",null,null,null,List.of(),null,List.of(),List.of()):ordinaryPlan(plate.remainder(),mode);
+            var questions="person".equals(plan.targetType())?List.of("车牌仅用于查找车辆，请调整人物条件"):plan.clarifications();
+            return new SearchPlan("vehicle",plan.start(),plan.end(),plan.locationText(),plan.cameraIds(),plan.attributes(),plan.textTerms(),questions,plate.number());
+        }
+        return ordinaryPlan(input,mode);
+    }
+    private SearchPlan ordinaryPlan(String input,String mode) {
         if("keyword".equals(mode))return KeywordSearchPlanner.plan(input);
         return TemporalSearchPlanner.parse(input,Instant.now(),java.time.ZoneId.of("Asia/Shanghai")).orElseGet(()->interpret(input));
     }
@@ -157,7 +181,11 @@ public final class SearchOrchestrator {
             model = gateway.post("/internal/v1/interpret-query", Map.of("query", input.strip(),
                     "reference_time", Instant.now().toString(), "timezone", "Asia/Shanghai"), gatewayAuthorization, Duration.ofSeconds(370));
         } catch (SecureJsonClient.UpstreamFailure e) { throw new SearchFailure("model_unavailable"); }
-        try { return SearchPlanParser.parse(model.get("result")); }
+        try {
+            var plan=SearchPlanParser.parse(model.get("result"));
+            if(plan.plateNumber()!=null)throw new IllegalArgumentException("model cannot supply plate facts");
+            return plan;
+        }
         catch (IllegalArgumentException e) { throw new SearchFailure("invalid_model_plan"); }
     }
 

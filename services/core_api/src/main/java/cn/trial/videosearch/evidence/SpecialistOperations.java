@@ -2,6 +2,7 @@ package cn.trial.videosearch.evidence;
 
 import cn.trial.videosearch.admin.UserService;
 import cn.trial.videosearch.search.SearchOrchestrator;
+import cn.trial.videosearch.index.ReviewedPlatePublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -10,11 +11,12 @@ import java.util.*;
 @Service
 public class SpecialistOperations {
     public record Control(Boolean enabled,long expected_revision){}
-    private final JdbcTemplate db;private final UserService users;private final SearchOrchestrator search;
-    public SpecialistOperations(JdbcTemplate db,UserService users,SearchOrchestrator search){this.db=db;this.users=users;this.search=search;}
+    private final JdbcTemplate db;private final UserService users;private final SearchOrchestrator search;private final ReviewedPlatePublisher plates;
+    public SpecialistOperations(JdbcTemplate db,UserService users,SearchOrchestrator search,ReviewedPlatePublisher plates){this.db=db;this.users=users;this.search=search;this.plates=plates;}
     public Map<String,Object> status(){
         var row=db.queryForMap("SELECT enabled,revision FROM processing_controls WHERE control_key='specialist_claims'");
         var result=new LinkedHashMap<String,Object>(row);result.put("main_analysis_enabled",Boolean.TRUE.equals(db.queryForObject("SELECT enabled FROM processing_controls WHERE control_key='analysis_claims'",Boolean.class)));
+        result.put("plate_index",plates.status());
         var cameras=search.readableCameras().stream().sorted().toList();
         if(cameras.isEmpty()){result.put("counts",List.of());result.put("recent",List.of());return result;}
         String scope=String.join(",",Collections.nCopies(cameras.size(),"?"));
@@ -25,6 +27,11 @@ public class SpecialistOperations {
             recent.add(Map.of("input",input,"job",SpecialistJobs.summary(job,Boolean.TRUE.equals(row.get("enabled")))));
         }
         result.put("recent",recent);return result;
+    }
+    @Transactional
+    public Map<String,Object> retryPlateIndex(String actor){
+        users.requireAdmin(actor);var result=plates.retryFailed();
+        db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,'specialist.plate_index_retry',?,?)",actor,"重新排队 "+result.get("rescheduled"),UUID.randomUUID());return result;
     }
     @Transactional
     public Map<String,Object> control(Control body,String actor){

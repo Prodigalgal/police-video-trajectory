@@ -63,6 +63,11 @@ public final class SecureJsonClient {
         return result.body();
     }
 
+    public Map<String,Object> get(String path,String authorization,Duration timeout){
+        var result=exchange("GET",path,null,authorization,timeout);
+        if(result.status()<200||result.status()>=300)throw new UpstreamFailure(result.status());return result.body();
+    }
+
     public void delete(String path,Map<String,?> body,String authorization,Duration timeout) {
         var result=exchange("DELETE",path,body,authorization,timeout);
         if(result.status()<200 || result.status()>=300) throw new UpstreamFailure(result.status());

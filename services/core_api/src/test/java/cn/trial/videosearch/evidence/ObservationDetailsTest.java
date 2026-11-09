@@ -34,7 +34,7 @@ class ObservationDetailsTest {
     @Test void outOfScopeObservationDoesNotReadFilesOrExposeItsSourceReference() throws Exception {
         var db=mock(JdbcTemplate.class);var search=mock(SearchOrchestrator.class);var files=mock(EvidenceFiles.class);
         when(db.queryForList(anyString(),any(Object[].class))).thenReturn(List.of(Map.of("camera_id","recording-05","source_ref","secret:must-stay-internal")));
-        var details=new ObservationDetails(db,search,files,mock(FrameRecordings.class),"missing");
+        var details=new ObservationDetails(db,search,files,mock(FrameRecordings.class),"missing",new cn.trial.videosearch.evidence.ReviewedPlateFacts(db,false));
         assertTrue(details.read(UUID.randomUUID()).isEmpty());verifyNoInteractions(files);
     }
     @Test void authenticationPrecedesDetailLookup() {

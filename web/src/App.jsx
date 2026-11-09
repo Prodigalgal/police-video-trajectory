@@ -28,6 +28,8 @@ async function responseJson(response) {
       invalid_model_plan: '暂时无法理解这次描述，请明确目标及特征后重试。',
       invalid_search_scope: '无法确定查询范围，请检查点位或地点描述。',
       search_backend_unavailable: '线索索引暂时不可用，请稍后重试。',
+      plate_search_changed: '车牌复核或来源已变化，请重新搜索。',
+      reviewed_plate_search_disabled: '已复核车牌检索暂未启用，请稍后再试。',
       search_cursor_expired: '翻页会话已过期，请重新搜索。',
       invalid_search_cursor: '查询条件或翻页会话已变化，请重新搜索。',
       search_context_expired: '条件调整已过期，请重新理解原描述后再搜索。',
@@ -76,6 +78,7 @@ function ResultCard({ item, onInspect, onPlay }) {
   const time = item.source_time ? formatTime(item.source_time) : formatTime(item.received_at)
   const label = item.source_time ? '来源时间' : '记录时间'
   const tags = [item.target_type === 'person' && item.upper_color && `上衣 ${item.upper_color}`, item.target_type === 'person' && item.lower_color && `下装 ${item.lower_color}`, item.vehicle_color && `车身 ${item.vehicle_color}`,
+    item.reviewed_plate_number && `已复核车牌 ${item.reviewed_plate_number}`,
     ...(Array.isArray(item.carrying) ? item.carrying : []), item.transport_type, item.visible_action].filter(Boolean)
   const uncertain = uncertainLabels(item.uncertain_fields)
   const imageUrl = item.frame_id ? `/api/v1/frames/${encodeURIComponent(item.frame_id)}/image` : null
@@ -179,7 +182,7 @@ function App() {
         if(adjustment)setNotice(data.status==='clarification_required'?'条件已调整，请继续补充尚未明确的信息。':'已按调整后的条件重新检索。')
         if (cursor)scrollRequest.current=requestAnimationFrame(()=>{scrollRequest.current=null;if(request.current===controller)document.getElementById('search-results')?.scrollIntoView({block:'start'})})
       }else if(!cursor)closeSnapshot(data)
-    } catch (e) { if (request.current === controller && e.name !== 'AbortError'){setError(chineseMessage(e.message));setErrorCode(e.code);setRestartRequired(['search_context_expired','invalid_search_context','search_scope_changed','search_cursor_expired','invalid_search_cursor'].includes(e.code))} } finally { if (request.current === controller) setLoading(false) }
+    } catch (e) { if (request.current === controller && e.name !== 'AbortError'){setError(chineseMessage(e.message));setErrorCode(e.code);setRestartRequired(['plate_search_changed','search_context_expired','invalid_search_context','search_scope_changed','search_cursor_expired','invalid_search_cursor'].includes(e.code))} } finally { if (request.current === controller) setLoading(false) }
   }
   async function refreshStatus() {
     statusRequest.current?.abort(); const controller = new AbortController(); statusRequest.current = controller

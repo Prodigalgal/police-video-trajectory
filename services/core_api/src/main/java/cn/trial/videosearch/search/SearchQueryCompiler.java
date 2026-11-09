@@ -47,6 +47,11 @@ public final class SearchQueryCompiler {
         filters.add(Map.of("term", Map.of("deleted", false)));
         filters.add(Map.of("terms", Map.of("camera_id", List.copyOf(cameras))));
         if (!plan.targetType().equals("unknown")) filters.add(Map.of("term", Map.of("target_type", plan.targetType())));
+        if (plan.plateNumber()!=null) {
+            if("person".equals(plan.targetType()))throw new IllegalArgumentException("plate cannot filter people");
+            if("unknown".equals(plan.targetType()))filters.add(Map.of("term",Map.of("target_type","vehicle")));
+            filters.add(Map.of("term",Map.of("reviewed_plate_number",PlateNumbers.normalize(plan.plateNumber()))));
+        }
         if (plan.start() != null || plan.end() != null) {
             var range = new LinkedHashMap<String, Object>();
             if (plan.start() != null) range.put("gte", plan.start().toString());
@@ -110,7 +115,7 @@ public final class SearchQueryCompiler {
     }
 
     public static boolean hasConditions(SearchPlan plan) {
-        if(!"unknown".equals(plan.targetType())||plan.start()!=null||plan.end()!=null||hasText(plan.locationText())
+        if(plan.plateNumber()!=null||!"unknown".equals(plan.targetType())||plan.start()!=null||plan.end()!=null||hasText(plan.locationText())
                 ||plan.cameraIds()!=null&&!plan.cameraIds().isEmpty()||plan.textTerms()!=null&&!plan.textTerms().isEmpty())return true;
         var attributes=plan.attributes();
         return attributes!=null&&(hasText(attributes.upperColor())||hasText(attributes.lowerColor())||hasText(attributes.clothingColor())

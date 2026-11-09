@@ -61,6 +61,7 @@ public final class SearchPaging {
         } catch(RuntimeException e) { if(created && pit!=null) closePit(pit);throw e; }
     }
     public void close(String input,String cursor) { es.delete("/_pit",Map.of("id",codec.decode(cursor,input).pit()),authorization,Duration.ofSeconds(10)); }
+    public void discard(String input,Page page){closePit(codec.decode((String)page.pagination().get("close_cursor"),input).pit());}
     private void closePit(String pit) { try { es.delete("/_pit",Map.of("id",pit),authorization,Duration.ofSeconds(10)); } catch(SecureJsonClient.UpstreamFailure ignored) { /* TTL remains bounded. */ } }
     private static List<Object> sortValues(Map<String,Object> hit) {
         if(!(hit.get("sort") instanceof List<?> values)) throw new SecureJsonClient.UpstreamFailure();

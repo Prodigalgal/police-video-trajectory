@@ -11,7 +11,7 @@ import java.util.Set;
 
 /** Treat gateway output as untrusted even after its own schema validation. */
 public final class SearchPlanParser {
-    private static final Set<String> PLAN_FIELDS = Set.of("schema_version", "target_type", "time_range", "location_text", "camera_ids", "attributes", "text_terms", "clarifications");
+    private static final Set<String> PLAN_FIELDS = Set.of("schema_version", "target_type", "time_range", "location_text", "camera_ids", "attributes", "text_terms", "clarifications", "plate_number");
     private static final Set<String> ATTR_FIELDS = Set.of("upper_color", "lower_color", "clothing_color", "vehicle_color", "carrying", "transport_type", "visible_action");
     private SearchPlanParser() {}
 
@@ -24,7 +24,8 @@ public final class SearchPlanParser {
         attrs.put("upper_color",attributes==null?null:attributes.upperColor());attrs.put("lower_color",attributes==null?null:attributes.lowerColor());
         attrs.put("clothing_color",attributes==null?null:attributes.clothingColor());attrs.put("vehicle_color",attributes==null?null:attributes.vehicleColor());
         attrs.put("carrying",attributes==null?List.of():attributes.carrying());attrs.put("transport_type",attributes==null?null:attributes.transportType());attrs.put("visible_action",attributes==null?null:attributes.visibleAction());
-        result.put("attributes",attrs);result.put("text_terms",plan.textTerms());result.put("clarifications",plan.clarifications());return result;
+        result.put("attributes",attrs);result.put("text_terms",plan.textTerms());result.put("clarifications",plan.clarifications());
+        if(plan.plateNumber()!=null)result.put("plate_number",plan.plateNumber());return result;
     }
 
     public static SearchPlan parse(Object value) {
@@ -47,7 +48,7 @@ public final class SearchPlanParser {
                 text(attrs.get("transport_type"), true, 80), text(attrs.get("visible_action"), true, 80),text(attrs.get("vehicle_color"),true,80));
         if ("person".equals(target) && attributes.vehicleColor()!=null) throw invalid();
         return new SearchPlan(target, start, end, location, strings(root.get("camera_ids"), 50, 200),
-                attributes, strings(root.get("text_terms"), 20, 200), strings(root.get("clarifications"), 10, 200));
+                attributes, strings(root.get("text_terms"), 20, 200), strings(root.get("clarifications"), 10, 200),text(root.get("plate_number"),true,64));
     }
 
     private static Map<?, ?> object(Object value, Set<String> allowed) {

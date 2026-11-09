@@ -15,4 +15,6 @@ public class SpecialistOperationsController {
     public Mono<ResponseEntity<Map<String,Object>>> status(@RequestHeader(value="Authorization",required=false)String auth,@RequestHeader(value="X-Actor-Id",required=false)String actor,@RequestHeader(value="X-Actor-Revision",required=false)Long revision){return endpoint.call(auth,actor,revision,true,operations::status);}
     @PostMapping
     public Mono<ResponseEntity<Map<String,Object>>> control(@RequestHeader(value="Authorization",required=false)String auth,@RequestHeader(value="X-Actor-Id",required=false)String actor,@RequestHeader(value="X-Actor-Revision",required=false)Long revision,@RequestBody SpecialistOperations.Control body){return endpoint.call(auth,actor,revision,true,()->operations.control(body,actor));}
+    @PostMapping("/plate-index/retry")
+    public Mono<ResponseEntity<Map<String,Object>>> retry(@RequestHeader(value="Authorization",required=false)String auth,@RequestHeader(value="X-Actor-Id",required=false)String actor,@RequestHeader(value="X-Actor-Revision",required=false)Long revision){return endpoint.call(auth,actor,revision,true,()->operations.retryPlateIndex(actor));}
 }

@@ -187,7 +187,7 @@ public final class ModuleDatabaseCheck {
 
         phase("scoped_management");String camera=(String)((Map<?,?>)cases.get(4)).get("camera_id");
         var search=new SearchOrchestrator(db,"https://disabled.invalid","/database-ca/ca.crt","disabled",
-                "https://disabled.invalid","/database-ca/ca.crt","disabled","disabled","disabled",camera,"police-video-observations-module-check");
+                "https://disabled.invalid","/database-ca/ca.crt","disabled","disabled","disabled",camera,"police-video-observations-module-check",new cn.trial.videosearch.evidence.ReviewedPlateFacts(db,false));
         var admin=new AdminService(db,search,frames,null,modules);var page=admin.moduleJobs("all",camera,null,1,null);
         check(((List<?>)page.get("items")).size()==1 && Boolean.TRUE.equals(page.get("has_more")),"module pagination differs");
         var first=(Map<?,?>)((List<?>)page.get("items")).getFirst();check(camera.equals(first.get("camera_id")),"module camera scope leaked");

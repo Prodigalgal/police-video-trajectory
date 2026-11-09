@@ -103,6 +103,8 @@ def mount_specialists(app,cfg,authenticated,origin_ok):
     async def control_status(request:Request):return await forward(request,'GET','/control',admin=True)
     @app.post('/api/admin/specialist-control')
     async def control(body:SpecialistControl,request:Request):return await forward(request,'POST','/control',body.model_dump(mode='json'),admin=True)
+    @app.post('/api/admin/specialist-control/plate-index/retry')
+    async def retry_plate_index(request:Request):return await forward(request,'POST','/control/plate-index/retry',admin=True)
     @app.get('/api/v1/specialist-jobs/{identity}/result')
     async def result(identity:UUID,request:Request):return await forward(request,'GET',f'/{identity}/result')
     @app.get('/api/v1/specialist-jobs/{identity}')

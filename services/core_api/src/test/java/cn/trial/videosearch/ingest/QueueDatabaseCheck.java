@@ -93,7 +93,7 @@ public final class QueueDatabaseCheck {
         String camera=db.queryForObject("SELECT camera_id FROM capture_outbox WHERE frame_id=?",String.class,selected.frameId());
         var search=new SearchOrchestrator(db,"https://disabled.invalid","/database-ca/ca.crt","unusable-in-check",
                 "https://disabled.invalid","/database-ca/ca.crt","disabled","unusable-in-check","unusable-in-check",
-                camera,"police-video-observations-queue-check");
+                camera,"police-video-observations-queue-check",new cn.trial.videosearch.evidence.ReviewedPlateFacts(db,false));
         var admin=new AdminService(db,search,queue,null,modules);var overview=admin.overview();
         check(((Number)((Map<?,?>)overview.get("counts")).get("cameras")).intValue()==1,"admin overview scope leaked");
         check(((Number)((Map<?,?>)overview.get("queue_load")).get("retry_waiting")).intValue()==1,"admin retry status differs");
