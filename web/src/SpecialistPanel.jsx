@@ -12,6 +12,7 @@ export default function SpecialistPanel({input,onUnauthenticated,initialJob=null
   const [selection,setSelection]=useState(null),[selectionLoading,setSelectionLoading]=useState(false),[selectionError,setSelectionError]=useState('')
   const [sourcePreview,setSourcePreview]=useState(null),[sourceError,setSourceError]=useState('')
   const previewUrl=sourcePreview?.sha===result?.result_sha256?sourcePreview?.url:null
+  const [requestedIntent,setRequestedIntent]=useState('')
   const needsSelection=operation==='license_plate'&&capabilities?.selection_required===true
   const selectionBlocked=needsSelection&&(selectionLoading||!selection||selection.decision!=='selected')
   const profile=capabilities?.bindings?.[operation]?.profile||capabilities?.profile
@@ -30,9 +31,9 @@ export default function SpecialistPanel({input,onUnauthenticated,initialJob=null
   },[input.input_id,after,reload])
   useEffect(()=>{
     const abort=new AbortController();setSelection(null);setSelectionError('');setSelectionLoading(needsSelection)
-    if(needsSelection)specialistApi(`analysis-inputs/${input.input_id}/specialist-selection`,{signal:abort.signal}).then(value=>validateSpecialistSelection(value,input)).then(value=>{if(!abort.signal.aborted)setSelection(value)}).catch(reason=>{if(!abort.signal.aborted)failure(reason,setSelectionError)}).finally(()=>{if(!abort.signal.aborted)setSelectionLoading(false)})
+    if(needsSelection)specialistApi(`analysis-inputs/${input.input_id}/specialist-selection${requestedIntent?'?intent='+requestedIntent:''}`,{signal:abort.signal}).then(value=>validateSpecialistSelection(value,input)).then(value=>{if(!abort.signal.aborted)setSelection(value)}).catch(reason=>{if(!abort.signal.aborted)failure(reason,setSelectionError)}).finally(()=>{if(!abort.signal.aborted)setSelectionLoading(false)})
     return()=>abort.abort()
-  },[input.input_id,needsSelection,reload])
+  },[input.input_id,needsSelection,reload,requestedIntent])
   const pending=page?.items.some(value=>['queued','active'].includes(value.state))
   useEffect(()=>{if(!pending||busy)return;const timer=setInterval(()=>{if(!document.hidden)setReload(n=>n+1)},10000);return()=>clearInterval(timer)},[pending,busy])
   useEffect(()=>{
@@ -58,10 +59,10 @@ export default function SpecialistPanel({input,onUnauthenticated,initialJob=null
   async function submit(job=null){
     if(busy||!actions.current)return;const abort=actions.current;setBusy(true);setError('');setMessage('')
     if(!job&&selectionBlocked){setBusy(false);setError('当前画面尚未被选择用于专用分析。');return}
-    const key=job?`retry:${job.job_id}:${job.revision}`:`create:${operation}:${profile}`
+    const key=job?`retry:${job.job_id}:${job.revision}`:`create:${operation}:${profile}:${requestedIntent}`
     if(!requests.current.has(key))requests.current.set(key,crypto.randomUUID())
     const request_id=requests.current.get(key),path=job?`specialist-jobs/${job.job_id}/retry`:`analysis-inputs/${input.input_id}/specialist-jobs`
-    try{const value=validateSpecialistJob(await specialistApi(path,{method:'POST',signal:abort.signal,body:JSON.stringify(job?{request_id,revision:job.revision}:{request_id,input_manifest_sha256:input.manifest_sha256,operation})}),input)
+    try{const value=validateSpecialistJob(await specialistApi(path,{method:'POST',signal:abort.signal,body:JSON.stringify(job?{request_id,revision:job.revision}:{request_id,input_manifest_sha256:input.manifest_sha256,operation,...(operation==='license_plate'&&requestedIntent?{requested_intent:requestedIntent}:{})})}),input)
       if(job&&value.job_id!==job.job_id)throw new Error('恢复的任务编号不一致。')
       if(!abort.signal.aborted){setMessage(value.dispatch_state==='paused'?'任务已登记，等待恢复处理。':value.state==='completed'?'已有对应结果，可在下方查看。':'任务已登记，可查看后续进度。');setReload(n=>n+1)}
     }catch(reason){if(!abort.signal.aborted)failure(reason)}finally{if(!abort.signal.aborted)setBusy(false)}
@@ -80,6 +81,7 @@ export default function SpecialistPanel({input,onUnauthenticated,initialJob=null
     
     
     <div className="context-heading"><label htmlFor={selectId}>识别类型</label><select id={selectId} value={operation} disabled={busy||!capabilities?.configured} onChange={event=>setOperation(event.target.value)}>{Object.entries(operationNames).map(([value,label])=><option key={value} value={value} disabled={capabilities&&!capabilities.operations.includes(value)}>{label}</option>)}</select><button type="button" className="admin-button secondary" disabled={busy||loading||!capabilities?.configured||selectionBlocked||!capabilities.operations.includes(operation)||input.source_status==='stale'} onClick={()=>submit()}>{busy?'正在提交…':'提交专用识别'}</button></div>
+    {operation==='license_plate'&&<div className="context-heading"><label htmlFor={selectId+'-intent'}>识别目的</label><select id={selectId+'-intent'} disabled={busy} value={requestedIntent} onChange={event=>setRequestedIntent(event.target.value)}><option value="">按自动选择依据处理</option><option value="verify_vehicle">主动核验当前车辆</option><option value="plate_query">查询当前车辆的车牌</option></select><InfoBubble title="主动申请说明">仅对当前保存输入中的车辆尝试识别。人物、缺失目标框或过小车辆不会放行。结果需要核对当前原图，不能据此自动认定跨画面身份。</InfoBubble></div>}
     {selectionLoading&&<p role="status">正在核验专用分析选择依据…</p>}{selectionError&&<FloatingNotice className="notice error" role="alert">{selectionError}</FloatingNotice>}
     {selection&&<section aria-label="专用分析选择"><h4 className="help-heading">{selectionNames[selection.decision]}<InfoBubble title="使用与限制说明"><p className="result-note">本选择只影响专用分析，原有语义分析继续保留；推荐不表示已经识别完成。</p></InfoBubble></h4>{selection.business_state&&<p>{businessStateNames[selection.business_state]}</p>}<p>{selection.reasons.map(selectionReason).join('；')}</p>{selection.decision==='reused'&&<button className="admin-button secondary" type="button" disabled={busy} onClick={viewExisting}>查看原帧确认结果</button>}</section>}
     {loading&&<p role="status">正在读取专用任务…</p>}{error&&<FloatingNotice className="notice error" role="alert">{error}</FloatingNotice>}{message&&<FloatingNotice role="status" className="admin-success">{message}</FloatingNotice>}

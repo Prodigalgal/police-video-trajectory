@@ -15,6 +15,7 @@ class ModelConfig:
     file_upload_url: str = ""
     output_mode: str = 'text'
     reasoning_effort: str = ''
+    binding_id: str = ''
 
     @property
     def valid(self):
@@ -49,6 +50,10 @@ class Settings:
     result_cache_bytes: int = 512*1024*1024
     result_cache_entries: int = 100000
     result_cache_ttl_seconds: int = 86400
+    control_url: str = ''
+    control_ca_file: str = ''
+    credentials_root: str = ''
+    control_consumer: str = 'ai-gateway'
 
     @classmethod
     def from_env(cls):
@@ -83,7 +88,9 @@ class Settings:
                    result_cache_namespace=get('MODEL_RESULT_CACHE_NAMESPACE','vision-results-v1'),
                    result_cache_bytes=int(get('MODEL_RESULT_CACHE_BYTES',str(512*1024*1024))),
                    result_cache_entries=int(get('MODEL_RESULT_CACHE_ENTRIES','100000')),
-                   result_cache_ttl_seconds=int(get('MODEL_RESULT_CACHE_TTL_SECONDS','86400')))
+                   result_cache_ttl_seconds=int(get('MODEL_RESULT_CACHE_TTL_SECONDS','86400')),
+                   control_url=get('MODEL_CONTROL_URL'),control_ca_file=get('MODEL_CONTROL_CA_FILE'),
+                   credentials_root=get('MODEL_CREDENTIALS_ROOT'),control_consumer=get('MODEL_CONTROL_CONSUMER','ai-gateway'))
 
     @property
     def ca_valid(self):

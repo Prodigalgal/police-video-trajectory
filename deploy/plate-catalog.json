@@ -1,0 +1,13 @@
+{
+  "schema_version": "specialist-service-catalog-v1",
+  "revision": 1,
+  "models": [{
+    "model_id": "plate-0cf6232949562adc907cd7d7bc35375aa22590fda701bad2967252669f63746c",
+    "profile": "plate-native-v1",
+    "adapter": "plate_onnx_v1",
+    "active": true,
+    "detector": {"file": "car_plate_detect.onnx", "sha256": "1a52f932768925c525014f3ff09769d4e1901763417f57e62c6fb20837843736"},
+    "recognizer": {"file": "plate_rec.onnx", "sha256": "71ae808d441bb2975bc7abd913a3d325b32344071ed2217d8efedccd12ba8799"},
+    "policy": {"extra_regions": 0, "minimum_width": 64, "minimum_height": 16, "minimum_character_probability": 0.8, "minimum_character_margin": 0.25}
+  }]
+}

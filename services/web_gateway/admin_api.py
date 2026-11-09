@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 from uuid import UUID
+from typing import Literal
 import httpx
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -55,6 +56,45 @@ class UserDelete(BaseModel):
     expected_version: int=Field(ge=1,strict=True)
 
 
+class ModelDefinition(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    display_name:str=Field(min_length=1,max_length=100)
+    provider:str=Field(pattern=r'^[a-z][a-z0-9_-]{0,79}$')
+    model:str=Field(min_length=1,max_length=150)
+    protocol:Literal['chat_completions','responses']
+    roles:list[Literal['text','vision']]=Field(min_length=1,max_length=2)
+    image_transport:Literal['inline','file']='inline'
+    output_mode:Literal['text','tool']='text'
+    json_mode:bool=Field(default=False,strict=True)
+    reasoning_effort:Literal['','none','minimal','low','medium','high','xhigh','max','auto']=''
+
+
+class ModelSave(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:UUID
+    expected_version:int=Field(ge=0,le=9999,strict=True)
+    definition:ModelDefinition
+
+
+class ModelSelection(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    profile_id:UUID
+    version:int=Field(ge=1,le=10000,strict=True)
+
+
+class ModelBindings(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    text:ModelSelection | None
+    vision:ModelSelection | None
+
+
+class ModelBind(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:UUID
+    expected_revision:int=Field(ge=0,strict=True)
+    bindings:ModelBindings
+
+
 def mount_admin(app,cfg,authenticated,origin_ok):
     hash_slots=threading.BoundedSemaphore(2)
     def encode_password(value):
@@ -75,8 +115,10 @@ def mount_admin(app,cfg,authenticated,origin_ok):
     async def forward(request,method,path,*,body=None,params=None):
         authorize(request,method!='GET')
         try:
+            headers={'Authorization':'Bearer '+cfg['admin_token'],'X-Actor-Id':actor(request)}
+            if cfg.get('account_directory'):headers['X-Actor-Revision']=str(request.state.account['credential_revision'])
             async with request.app.state.http.stream(method,cfg['core_url'].rstrip('/')+path,
-                    headers={'Authorization':'Bearer '+cfg['admin_token'],'X-Actor-Id':actor(request)},json=body,params=params,timeout=35) as response:
+                    headers=headers,json=body,params=params,timeout=35) as response:
                 raw=bytearray()
                 async for chunk in response.aiter_bytes():
                     raw.extend(chunk)
@@ -85,7 +127,10 @@ def mount_admin(app,cfg,authenticated,origin_ok):
                 if not isinstance(data,dict): raise ValueError('invalid management response')
                 if response.status_code!=200:
                     codes={'camera_unavailable','camera_revision_conflict','job_unavailable','processing_paused','state_revision_conflict','result_already_present','analysis_queue_full','invalid_admin_request','evidence_unavailable','username_exists','user_unavailable','user_revision_conflict','protected_account','last_admin_required','admin_required','invalid_user_request',
-                           'module_job_unavailable','module_queue_full','module_recovery_conflict','invalid_module_source'}
+                           'module_job_unavailable','module_queue_full','module_recovery_conflict','invalid_module_source',
+                           'model_provider_unavailable','model_providers_unavailable','model_request_conflict','model_profile_conflict',
+                           'model_binding_conflict','model_registry_full','model_profile_unavailable','model_activation_forbidden',
+                           'invalid_model_request','model_control_unavailable','invalid_business_request','business_unavailable'}
                     code=data.get('code') if data.get('code') in codes else 'admin_unavailable'
                     return JSONResponse({'code':code,'detail':'管理操作未完成'},status_code=response.status_code if response.status_code in {400,403,404,409,429} or response.status_code==422 and code=='invalid_module_source' else 503)
                 if path.startswith('/internal/admin/users'):
@@ -104,7 +149,18 @@ def mount_admin(app,cfg,authenticated,origin_ok):
     @app.get('/api/admin/config')
     async def configuration(request:Request):
         authorize(request)
-        return {'username':actor(request),'capabilities':['overview','users.manage','cameras.edit','jobs.read','jobs.retry','processing.pause','models.read']}
+        return {'username':actor(request),'capabilities':['overview','users.manage','cameras.edit','jobs.read','jobs.retry','processing.pause','models.read','models.manage']}
+
+    @app.get('/api/admin/models/configuration')
+    async def model_configuration(request:Request):return await forward(request,'GET','/internal/admin/models/configuration')
+
+    @app.put('/api/admin/models/profiles/{profile_id}')
+    async def save_model(profile_id:UUID,body:ModelSave,request:Request):
+        return await forward(request,'PUT',f'/internal/admin/models/profiles/{profile_id}',body=body.model_dump(mode='json'))
+
+    @app.post('/api/admin/models/bindings')
+    async def bind_models(body:ModelBind,request:Request):
+        return await forward(request,'POST','/internal/admin/models/bindings',body=body.model_dump(mode='json'))
 
     @app.get('/api/admin/users')
     async def users(request:Request,limit:int=50,after:str | None=None):

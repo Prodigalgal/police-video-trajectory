@@ -29,12 +29,14 @@ public class SpecialistJobs {
         this.db=db;this.inputs=inputs;this.search=search;tx=new TransactionTemplate(manager);this.enabled=enabled;this.profile=profile;this.capacity=capacity;policy=new AnalysisQueuePolicy(active,attempts,5,300);
         this.catalog=catalog;this.admission=admission;this.events=events;
     }
-    public record Create(UUID requestId,String inputManifestSha256,String operation){}
+    public record Create(UUID requestId,String inputManifestSha256,String operation,String requestedIntent){
+        public Create(UUID requestId,String inputManifestSha256,String operation){this(requestId,inputManifestSha256,operation,null);}
+    }
     public record Retry(UUID requestId,long revision){}
     public record Complete(UUID jobId,String workerId,long generation,String inputSha256,Map<String,Object> result){}
     private void requireEnabled(){if(!enabled)throw new InputRejected(404,"specialist_disabled");}
     private void lock(){db.execute("SELECT pg_advisory_xact_lock(918273648)");}
-    private boolean claims(){return Boolean.TRUE.equals(db.queryForObject("SELECT enabled FROM processing_controls WHERE control_key='analysis_claims'",Boolean.class));}
+    private boolean claims(){return Boolean.TRUE.equals(db.queryForObject("SELECT coalesce((SELECT enabled FROM processing_controls WHERE control_key='specialist_claims'),(SELECT enabled FROM processing_controls WHERE control_key='analysis_claims'))",Boolean.class));}
     private void room(){if(db.queryForObject("SELECT count(*) FROM specialist_analysis_jobs WHERE state IN ('queued','active')",Long.class)>=capacity)throw new InputRejected(429,"specialist_queue_full");}
     public Map<String,Object> capabilities(){
         requireEnabled();var result=new LinkedHashMap<String,Object>();
@@ -46,10 +48,11 @@ public class SpecialistJobs {
         }
         if(admission.required())result.put("selection_required",true);return result;
     }
-    public Map<String,Object> selection(UUID input){
+    public Map<String,Object> selection(UUID input){return selection(input,null);}
+    public Map<String,Object> selection(UUID input,String intent){
         requireEnabled();var verified=inputs.metadata(input);var binding=catalog.configured()?catalog.binding("license_plate",profile):new ProcessingCatalog.Binding(profile,null,null,"",0);
         var descriptor=SpecialistResult.input(input,verified,"license_plate",binding.profile().isEmpty()?"selection-preview":binding.profile());
-        return admission.preview(descriptor,binding);
+        return intent==null?admission.preview(descriptor,binding):admission.previewRequested(descriptor,verified.manifest(),intent);
     }
     private UUID previous(UUID request,String actor,String sha){
         var rows=db.queryForList("SELECT actor_id,request_sha256,job_id FROM specialist_analysis_requests WHERE request_id=?",request);if(rows.isEmpty())return null;
@@ -58,7 +61,8 @@ public class SpecialistJobs {
     private void request(UUID request,String actor,String sha,UUID job){db.update("INSERT INTO specialist_analysis_requests(request_id,actor_id,request_sha256,job_id) VALUES(?,?,?,?)",request,actor,sha,job);}
     private static String createFingerprint(UUID input,Create body,String actor){
         if(input==null||body==null||body.requestId()==null||actor==null||actor.isBlank()||actor.length()>100||body.inputManifestSha256()==null||!body.inputManifestSha256().matches("[a-f0-9]{64}")||body.operation()==null||!SpecialistResult.OPERATIONS.contains(body.operation()))throw new IllegalArgumentException("Invalid specialist request");
-        return CanonicalJson.encode(Map.of("action","create","input_id",input.toString(),"input_manifest_sha256",body.inputManifestSha256(),"operation",body.operation()),8192).sha256();
+        if(body.requestedIntent()!=null&&(!"license_plate".equals(body.operation())||!Set.of("verify_vehicle","plate_query").contains(body.requestedIntent())))throw new IllegalArgumentException("Invalid specialist intent");
+        var value=new LinkedHashMap<String,Object>();value.put("action","create");value.put("input_id",input.toString());value.put("input_manifest_sha256",body.inputManifestSha256());value.put("operation",body.operation());if(body.requestedIntent()!=null)value.put("requested_intent",body.requestedIntent());return CanonicalJson.encode(value,8192).sha256();
     }
     public Optional<Map<String,Object>> replayCreate(UUID input,Create body,String actor){
         requireEnabled();String fingerprint=createFingerprint(input,body,actor);var id=previous(body.requestId(),actor,fingerprint);return id==null?Optional.empty():Optional.of(read(id));
@@ -75,7 +79,7 @@ public class SpecialistJobs {
             var duplicates=db.queryForList("SELECT job_id FROM specialist_analysis_jobs WHERE input_sha256=?",encoded.sha256());UUID job;
             SpecialistAdmission.Decision approved=null;
             if(duplicates.isEmpty()){
-                room();approved=admission.approve(descriptor,binding);job=UUID.randomUUID();
+                room();approved=body.requestedIntent()==null?admission.approve(descriptor,binding):admission.approveRequested(descriptor,current.manifest(),body.requestedIntent());job=UUID.randomUUID();
                 int priority=approved==null?0:switch(String.valueOf(approved.summary().get("intent"))){case "verify_vehicle"->2;case "plate_query"->1;default->0;};
                 db.update("INSERT INTO specialist_analysis_jobs(job_id,input_id,input_manifest_sha256,frame_id,camera_id,operation,profile,input_sha256,input_descriptor,created_by,routing_snapshot,routing_sha256,selection_priority) VALUES(?,?,?,?,?,?,?,?,?::jsonb,?,?::jsonb,?,?)",job,input,verified.sha256(),UUID.fromString((String)descriptor.get("frame_id")),descriptor.get("camera_id"),body.operation(),binding.profile(),encoded.sha256(),encoded.payload(),actor,binding.encoded()==null?null:binding.encoded().payload(),binding.encoded()==null?null:binding.encoded().sha256(),priority);
                 db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,'create_specialist_job','queued',?)",actor,body.requestId());
@@ -150,8 +154,10 @@ public class SpecialistJobs {
         var snapshot=catalog.current();
         if(snapshot!=null)catalog.binding(snapshot,(String)row(job,false).get("operation"),profile);
         tx.executeWithoutResult(status->{lock();var replay=previous(body.requestId(),actor,sha);if(replay!=null){if(!replay.equals(job))throw new InputRejected(409,"specialist_request_conflict");return;}
-            var row=row(job,true);verifyInput(row,false,true);if(!"failed".equals(row.get("state"))||((Number)row.get("revision")).longValue()!=body.revision())throw new InputRejected(409,"specialist_revision_conflict");
-            var binding=new ProcessingCatalog.Binding((String)row.get("profile"),null,null,catalog.selectionPolicy(snapshot),snapshot==null?0:snapshot.revision());var approved=admission.approve(descriptor(row),binding);
+            var row=row(job,true);var verified=verifyInput(row,false,true);if(!"failed".equals(row.get("state"))||((Number)row.get("revision")).longValue()!=body.revision())throw new InputRejected(409,"specialist_revision_conflict");
+            var binding=new ProcessingCatalog.Binding((String)row.get("profile"),null,null,catalog.selectionPolicy(snapshot),snapshot==null?0:snapshot.revision());
+            var admitted=db.queryForList("SELECT decision->>'intent' AS intent,decision->>'selection_mode' AS mode FROM specialist_analysis_admissions WHERE job_id=? ORDER BY created_at,request_id LIMIT 1",job);
+            var approved=!admitted.isEmpty()&&"requested".equals(admitted.getFirst().get("mode"))?admission.approveRequested(descriptor(row),verified.manifest(),(String)admitted.getFirst().get("intent")):admission.approve(descriptor(row),binding);
             room();db.update("UPDATE specialist_analysis_jobs SET state='queued',attempts=0,last_error_code=NULL,revision=revision+1,next_attempt_at=clock_timestamp(),updated_at=clock_timestamp() WHERE job_id=?",job);request(body.requestId(),actor,sha,job);admission.record(approved,body.requestId(),job,descriptor(row),"retry");db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,'retry_specialist_job','queued',?)",actor,body.requestId());});return read(job);
     }
     public Map<String,Object> read(UUID job){requireEnabled();var row=row(job,false);verifyInput(row,false,false);return summary(row,claims());}

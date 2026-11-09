@@ -5,6 +5,23 @@ import java.util.*;
 /** One spatial rule shared by read projections and authoritative confirmation. */
 public record PlateReviewTarget(UUID eventId,List<Long> box,List<Integer> eligible) {
     private static final double MIN_IOU=.5;
+    public static Optional<PlateReviewTarget> requested(Map<String,Object> decision,Map<String,Object> job,Map<String,Object> result){
+        try{
+            if(!"requested".equals(decision.get("selection_mode"))||!job.get("frame_id").toString().equals(decision.get("frame_id"))||!Objects.equals(result.get("evidence_sha256"),decision.get("jpeg_sha256")))throw new IllegalArgumentException();
+            var vehicle=SpecialistAdmission.requestedBox(decision.get("vehicle_bbox_xyxy"),((Number)result.get("image_width")).longValue(),((Number)result.get("image_height")).longValue());
+            if(vehicle.size()!=4)return Optional.empty();var candidates=new ArrayList<PlateReviewTarget>();
+            if(!(result.get("regions") instanceof List<?> regions))throw new IllegalArgumentException();
+            for(int index=0;index<regions.size();index++){
+                var region=SpecialistResult.object(regions.get(index));var box=SpecialistAdmission.requestedBox(region.get("bbox_xyxy"),((Number)result.get("image_width")).longValue(),((Number)result.get("image_height")).longValue());
+                if(box.size()!=4)throw new IllegalArgumentException();
+                double area=(double)(box.get(2)-box.get(0))*(box.get(3)-box.get(1));
+                double intersection=(double)Math.max(0,Math.min(box.get(2),vehicle.get(2))-Math.max(box.get(0),vehicle.get(0)))*Math.max(0,Math.min(box.get(3),vehicle.get(3))-Math.max(box.get(1),vehicle.get(1)));
+                if(intersection/area>=.9)candidates.add(new PlateReviewTarget(null,box,List.of(index)));
+            }
+            // Multiple plausible plates in one vehicle region require another image, never a guess.
+            return candidates.size()==1?Optional.of(candidates.getFirst()):Optional.empty();
+        }catch(RuntimeException invalid){throw new InputRejected(409,"plate_review_unavailable");}
+    }
     public static PlateReviewTarget bind(Map<String,Object> decision,Map<String,Object> job,Map<String,Object> result){
         try{
             UUID event=UUID.fromString(SpecialistResult.text(decision.get("event_id"),36));

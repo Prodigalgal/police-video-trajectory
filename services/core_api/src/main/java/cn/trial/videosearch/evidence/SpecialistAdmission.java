@@ -26,6 +26,40 @@ public class SpecialistAdmission {
     }
     public boolean required(){return required;}
     public record Decision(Map<String,Object> summary,String policySha,String sourceSha){}
+    private static final String REQUESTED_POLICY=CanonicalJson.sha256("requested-vehicle-plate-v1:minimum96x48");
+    public Map<String,Object> previewRequested(Map<String,Object> descriptor,Map<String,Object> manifest,String intent){
+        var decision=requested(descriptor,manifest,intent);var summary=new LinkedHashMap<>(decision.summary());
+        if("selected".equals(summary.get("decision"))&&budgetFull(descriptor)){summary.put("decision","deferred");summary.put("business_state","budget_wait");summary.put("reasons",List.of("camera_budget_wait"));}return summary;
+    }
+    public Decision approveRequested(Map<String,Object> descriptor,Map<String,Object> manifest,String intent){
+        var decision=requested(descriptor,manifest,intent);
+        if(!"selected".equals(decision.summary().get("decision")))throw new InputRejected(409,"specialist_not_selected");
+        if(budgetFull(descriptor))throw new InputRejected(429,"specialist_selection_budget");return decision;
+    }
+    private boolean budgetFull(Map<String,Object> descriptor){return db.queryForObject("SELECT count(*) FROM specialist_analysis_admissions WHERE camera_id=? AND created_at>clock_timestamp()-(? * interval '1 second')",Long.class,descriptor.get("camera_id"),windowSeconds)>=cameraBudget;}
+    private Decision requested(Map<String,Object> descriptor,Map<String,Object> manifest,String intent){
+        if(!Set.of("verify_vehicle","plate_query").contains(intent)||!"license_plate".equals(descriptor.get("operation")))throw new IllegalArgumentException();
+        var anchor=SpecialistResult.object(manifest.get("anchor"));UUID observation=UUID.fromString((String)anchor.get("observation_id"));
+        var rows=db.queryForList("SELECT target_type,bbox_xyxy::text AS box FROM observations WHERE observation_id=? AND record_version=? AND frame_id=? AND camera_id=? AND NOT deleted",observation,anchor.get("record_version"),UUID.fromString((String)descriptor.get("frame_id")),descriptor.get("camera_id"));
+        if(rows.size()!=1)throw new InputRejected(409,"input_source_changed");
+        var row=rows.getFirst();Object rawBox=row.get("box")==null?null:JSON.readValue((String)row.get("box"),Object.class);List<Long> box=requestedBox(rawBox,((Number)descriptor.get("image_width")).longValue(),((Number)descriptor.get("image_height")).longValue());
+        boolean vehicle="vehicle".equals(row.get("target_type")),usable=false;
+        if(vehicle&&box.size()==4){
+            long width=SpecialistResult.integer(descriptor.get("image_width"),1,20000),height=SpecialistResult.integer(descriptor.get("image_height"),1,20000);
+            long x=SpecialistResult.integer(box.get(0),0,width-1),y=SpecialistResult.integer(box.get(1),0,height-1),right=SpecialistResult.integer(box.get(2),x+1,width),bottom=SpecialistResult.integer(box.get(3),y+1,height);
+            usable=right-x>=96&&bottom-y>=48;
+        }
+        String reason=!vehicle?"requested_vehicle_required":!usable?"requested_vehicle_too_small":"requested_vehicle_check";
+        var summary=new LinkedHashMap<String,Object>();summary.put("selection_required",true);summary.put("selection_mode","requested");summary.put("decision",usable?"selected":"skipped");summary.put("business_state",usable?"need_read":"not_applicable");summary.put("reasons",List.of(reason));summary.put("modules",List.of(Map.of("module","license_plate","decision",usable?"selected":"skipped","reasons",List.of(reason))));
+        summary.put("selected_observation_ids",usable?List.of(observation.toString()):List.of());summary.put("policy_sha256",REQUESTED_POLICY);summary.put("frame_id",descriptor.get("frame_id"));summary.put("jpeg_sha256",descriptor.get("evidence_sha256"));summary.put("vehicle_bbox_xyxy",box);summary.put("intent",intent);summary.put("identity_association_verified",false);summary.put("recommendation_is_inference_completion",false);
+        return new Decision(summary,REQUESTED_POLICY,CanonicalJson.encode(Map.of("input_sha256",descriptor.get("input_manifest_sha256"),"observation_id",observation.toString(),"intent",intent,"box",box),8192).sha256());
+    }
+    static List<Long> requestedBox(Object raw,long width,long height){
+        if(!(raw instanceof List<?> box)||box.size()!=4||box.stream().anyMatch(value->!(value instanceof Number number)||!Double.isFinite(number.doubleValue())))return List.of();
+        double x=((Number)box.get(0)).doubleValue(),y=((Number)box.get(1)).doubleValue(),right=((Number)box.get(2)).doubleValue(),bottom=((Number)box.get(3)).doubleValue();
+        if(x<0||y<0||right<=x||bottom<=y||right>width||bottom>height)return List.of();
+        return List.of((long)Math.floor(x),(long)Math.floor(y),(long)Math.ceil(right),(long)Math.ceil(bottom));
+    }
     public Map<String,Object> preview(Map<String,Object> descriptor,ProcessingCatalog.Binding binding){
         var result=new LinkedHashMap<>(evaluate(descriptor,binding).summary());
         if(required&&"selected".equals(result.get("decision"))&&db.queryForObject("SELECT count(*) FROM specialist_analysis_admissions WHERE camera_id=? AND created_at>clock_timestamp()-(? * interval '1 second')",Long.class,descriptor.get("camera_id"),windowSeconds)>=cameraBudget){

@@ -6,7 +6,7 @@ export function useModal(onClose) {
   useEffect(() => {
     const previous = document.activeElement, overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const focusable = () => [...(panel.current?.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),video[controls],[tabindex="0"]') || [])].filter(node => node.getClientRects().length)
+    const focusable = () => [...(panel.current?.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),video[controls],[tabindex="0"]') || [])].filter(node => node.getClientRects().length)
     ;(focusable()[0] || panel.current)?.focus()
     function onKey(event) {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close.current(); return }

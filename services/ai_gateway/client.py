@@ -164,6 +164,7 @@ class ModelClient:
             raise GatewayError('模型服务超时',504)
         image_hash = hashlib.sha256(image_bytes if image_bytes is not None else image_data_url.encode()).hexdigest()
         binding = {'namespace':self.settings.result_cache_namespace,'url':config.api_url,'model':config.model,
+                   'model_binding':config.binding_id,
                    'protocol':config.style,'json_mode':config.json_mode,'transport':config.image_transport,
                    'credential_revision':hashlib.sha256(config.api_key.encode()).hexdigest(),
                    'prompt':prompt,'schema':result_model.model_json_schema(),'media_type':media_type,'image_sha256':image_hash}
@@ -249,6 +250,7 @@ class ModelClient:
                 raise GatewayError("模型结果不符合结构化契约") from None
             returned_model = payload.get("model") if isinstance(payload, dict) else None
             return result, {"configured_model": config.model,
+                            **({'model_binding':config.binding_id} if config.binding_id else {}),
                             "returned_model": returned_model if isinstance(returned_model, str) and len(returned_model) <= 200 else None,
                             "protocol": config.style, "latency_ms": round((time.monotonic() - started) * 1000),
                             **({'upstream_request_id':diagnostics.identity} if diagnostics.identity else {}), **image_metadata}

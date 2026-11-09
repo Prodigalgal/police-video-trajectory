@@ -5,7 +5,7 @@ from uuid import UUID
 import httpx
 from fastapi import HTTPException,Query,Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel,ConfigDict,Field
+from pydantic import BaseModel,ConfigDict,Field,model_validator
 
 
 class Create(BaseModel):
@@ -13,6 +13,12 @@ class Create(BaseModel):
     request_id:UUID
     input_manifest_sha256:str=Field(pattern=r'^[a-f0-9]{64}$')
     operation:Literal['text_ocr','license_plate']
+    requested_intent:Literal['verify_vehicle','plate_query'] | None=None
+
+    @model_validator(mode='after')
+    def plate_intent_only(self):
+        if self.requested_intent is not None and self.operation!='license_plate':raise ValueError('主动核验仅支持车牌识别')
+        return self
 
 
 class Retry(BaseModel):
@@ -38,6 +44,12 @@ class CandidateRecovery(BaseModel):
     reason:str=Field(min_length=1,max_length=300)
 
 
+class SpecialistControl(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    enabled:bool=Field(strict=True)
+    expected_revision:int=Field(ge=1,strict=True)
+
+
 def mount_specialists(app,cfg,authenticated,origin_ok):
     allowed={'specialist_disabled','specialist_not_configured','specialist_single_frame_required','specialist_queue_full','specialist_request_conflict','specialist_input_changed','specialist_job_unavailable','specialist_revision_conflict','specialist_result_unavailable','specialist_result_changed','invalid_specialist_request','invalid_specialist_result','input_unavailable','input_source_changed','input_manifest_changed','input_evidence_changed','input_evidence_unavailable','observation_unavailable','observation_revision_conflict'}
     allowed.update({'specialist_not_selected','specialist_selection_unavailable','specialist_selection_budget',
@@ -46,6 +58,7 @@ def mount_specialists(app,cfg,authenticated,origin_ok):
     allowed.update({'candidate_unavailable','candidate_recovery_conflict','candidate_revision_conflict',
                     'candidate_expired','candidate_queue_full','invalid_candidate_request','admin_required'})
     allowed.add('invalid_specialist_cursor')
+    allowed.update({'specialist_control_conflict','invalid_business_request','business_unavailable'})
     async def forward(request,method,suffix,body=None,params=None,*,admin=False):
         if method!='GET':origin_ok(request)
         if not authenticated(request):raise HTTPException(401,'请先登录')
@@ -81,11 +94,15 @@ def mount_specialists(app,cfg,authenticated,origin_ok):
     async def recover_candidate(identity:UUID,body:CandidateRecovery,request:Request):
         return await forward(request,'POST',f'/candidates/{identity}/retry',{'requestId':str(body.request_id),'expectedRevision':body.expected_revision,'reason':body.reason},admin=True)
     @app.post('/api/v1/analysis-inputs/{identity}/specialist-jobs')
-    async def create(identity:UUID,body:Create,request:Request):return await forward(request,'POST','/inputs/'+str(identity),{'requestId':str(body.request_id),'inputManifestSha256':body.input_manifest_sha256,'operation':body.operation})
+    async def create(identity:UUID,body:Create,request:Request):return await forward(request,'POST','/inputs/'+str(identity),{'requestId':str(body.request_id),'inputManifestSha256':body.input_manifest_sha256,'operation':body.operation,**({'requestedIntent':body.requested_intent} if body.requested_intent else {})})
     @app.get('/api/v1/analysis-inputs/{identity}/specialist-jobs')
     async def listing(identity:UUID,request:Request,limit:int=Query(default=10,ge=1,le=50),after:UUID|None=None):return await forward(request,'GET','/inputs/'+str(identity),params={'limit':limit,**({'after':str(after)} if after else {})})
     @app.get('/api/v1/analysis-inputs/{identity}/specialist-selection')
-    async def selection(identity:UUID,request:Request):return await forward(request,'GET','/inputs/'+str(identity)+'/selection')
+    async def selection(identity:UUID,request:Request,intent:Literal['verify_vehicle','plate_query'] | None=None):return await forward(request,'GET','/inputs/'+str(identity)+'/selection',params={'intent':intent} if intent else None)
+    @app.get('/api/admin/specialist-control')
+    async def control_status(request:Request):return await forward(request,'GET','/control',admin=True)
+    @app.post('/api/admin/specialist-control')
+    async def control(body:SpecialistControl,request:Request):return await forward(request,'POST','/control',body.model_dump(mode='json'),admin=True)
     @app.get('/api/v1/specialist-jobs/{identity}/result')
     async def result(identity:UUID,request:Request):return await forward(request,'GET',f'/{identity}/result')
     @app.get('/api/v1/specialist-jobs/{identity}')

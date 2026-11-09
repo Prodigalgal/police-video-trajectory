@@ -63,6 +63,7 @@ public class PlateEventResults {
         if(admissions.isEmpty())return Optional.empty();var admission=admissions.getFirst();
         if(!Objects.equals(row.get("frame_id"),admission.get("frame_id"))||!Objects.equals(row.get("camera_id"),admission.get("camera_id")))throw new InputRejected(409,"plate_review_unavailable");
         var decision=SpecialistResult.object(JSON.readValue((String)admission.get("decision"),Object.class));
+        if("requested".equals(decision.get("selection_mode")))return PlateReviewTarget.requested(decision,row,result);
         if(!decision.containsKey("event_id"))return Optional.empty();return Optional.of(PlateReviewTarget.bind(decision,row,result));
     }
     public Optional<Map<String,Object>> reviewTarget(UUID job,Map<String,Object> row,Map<String,Object> result){return target(job,row,result).map(value->value.view(row,result));}
@@ -84,10 +85,10 @@ public class PlateEventResults {
         if(revision!=body.expectedRevision())throw new InputRejected(409,"plate_review_conflict");
         String state="confirm".equals(body.decision())?"confirmed":"revoked";
         db.update("""
-            INSERT INTO specialist_plate_reviews(job_id,event_id,frame_id,camera_id,result_sha256,region_index,review_state,revision,actor_id)
-            VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET result_sha256=EXCLUDED.result_sha256,region_index=EXCLUDED.region_index,
+            INSERT INTO specialist_plate_reviews(job_id,event_id,frame_id,camera_id,result_sha256,region_index,review_state,revision,actor_id,review_scope)
+            VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET result_sha256=EXCLUDED.result_sha256,region_index=EXCLUDED.region_index,
             review_state=EXCLUDED.review_state,revision=EXCLUDED.revision,actor_id=EXCLUDED.actor_id,updated_at=clock_timestamp()
-            """,job,target.eventId(),row.get("frame_id"),row.get("camera_id"),body.resultSha256(),body.regionIndex(),state,revision+1,actor);
+            """,job,target.eventId(),row.get("frame_id"),row.get("camera_id"),body.resultSha256(),body.regionIndex(),state,revision+1,actor,target.eventId()==null?"single_frame":"event");
         var response=Map.<String,Object>of("state",state,"revision",revision+1,"region_index",body.regionIndex(),"job_id",job.toString());
         db.update("INSERT INTO specialist_plate_review_requests(request_id,job_id,actor_id,request_sha256,response) VALUES(?,?,?,?,?::jsonb)",body.requestId(),job,actor,fingerprint,CanonicalJson.encode(response,8192).payload());
         db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,'review_plate_result',?,?)",actor,state,body.requestId());

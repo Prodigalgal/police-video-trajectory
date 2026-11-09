@@ -58,6 +58,10 @@ def verify(root=ROOT, *, web_dist=False, jar=None):
     found['migration_023']=re.search(r'Application version: ([0-9.]+)\.',review_migration).group(1)
     nearby_migration=(root/'services/core_api/src/main/resources/db/024-nearby-records.sql').read_text()
     found['migration_024']=re.search(r'Application version: ([0-9.]+)\.',nearby_migration).group(1)
+    models_migration=(root/'services/core_api/src/main/resources/db/025-managed-models.sql').read_text()
+    found['migration_025']=re.search(r'Application version: ([0-9.]+)\.',models_migration).group(1)
+    specialist_control=(root/'services/core_api/src/main/resources/db/026-specialist-independent-control.sql').read_text()
+    found['migration_026']=re.search(r'Application version: ([0-9.]+)\.',specialist_control).group(1)
     if web_dist:
         found['web_artifact'] = json.loads((root / 'web/dist/version.json').read_text())['version']
     if jar:
