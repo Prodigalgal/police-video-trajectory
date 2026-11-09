@@ -1,0 +1,17 @@
+import {videoOffsetMs} from './video-position.js'
+
+export const contextSeconds=[3,5,10]
+
+export function videoWindow(item,duration,seconds=5,mode='window'){
+  if(!contextSeconds.includes(seconds)||!['window','full'].includes(mode))throw new Error('回看范围无效。')
+  if(!Number.isFinite(duration)||duration<=0||!Number.isSafeInteger(Math.round(duration*1000)))return null
+  const offset=videoOffsetMs(item),anchor=offset===null?null:offset/1000
+  const valid=anchor!==null&&anchor<duration
+  if(mode==='full'||!valid)return {start:0,end:duration,anchor:valid?anchor:null,mode:'full',reason:valid?null:anchor===null?'position_unavailable':'position_outside_recording'}
+  return {start:Math.max(0,anchor-seconds),end:Math.min(duration,anchor+seconds),anchor,mode:'window',reason:null}
+}
+
+export function boundedVideoTime(value,window){
+  if(!window||!Number.isFinite(value))throw new Error('录像位置无效。')
+  return Math.max(window.start,Math.min(window.end,value))
+}

@@ -30,6 +30,7 @@ def test_middle_modules_are_bounded_and_keep_operator_pause_and_private_bindings
     configure(tmp_path,'runtime@sha256:next','0.24.0','revision','build')
     assert once=={p.name:p.read_bytes() for p in directory.glob('*.json')}
     assert load('specialist-worker')['spec']['replicas']==0 and load('analysis-worker')['spec']['replicas']==0
+    assert load('core-api')['spec']['strategy']=={'type':'RollingUpdate','rollingUpdate':{'maxSurge':1,'maxUnavailable':0}}
     assert load('specialist-processing-catalog')['data']['operator_note']=='retained'
     credential_volume=next(entry for entry in load('ai-gateway')['spec']['template']['spec']['volumes'] if entry['name']=='model-credentials')
     assert [entry['path'] for source in credential_volume['projected']['sources'] for entry in source['secret']['items']]==['approved.token']

@@ -10,6 +10,7 @@ def configure(app_root,runtime,version,revision,run):
     root=Path(app_root);directory=root/'runtime'
     def load(name):return json.loads((directory/(name+'.json')).read_text())
     core,gateway,analysis=load('core-api'),load('ai-gateway'),load('analysis-worker')
+    core['spec']['strategy']={'type':'RollingUpdate','rollingUpdate':{'maxSurge':1,'maxUnavailable':0}}
     core_pod,gateway_pod=[value['spec']['template']['spec'] for value in (core,gateway)]
     core_container,gateway_container=[value['containers'][0] for value in (core_pod,gateway_pod)]
     environment(core_container,'VIDEO_REVIEWED_PLATE_SEARCH_ENABLED','true')

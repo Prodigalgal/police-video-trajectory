@@ -13,13 +13,13 @@ public class ReviewedPlateScheduler {
     private static final Logger LOG=LoggerFactory.getLogger(ReviewedPlateScheduler.class);
     private final ReviewedPlatePublisher publisher;
     public ReviewedPlateScheduler(ReviewedPlatePublisher publisher){this.publisher=publisher;}
-    @Scheduled(scheduler="reviewedPlateScheduler",fixedDelayString="${VIDEO_REVIEWED_PLATE_POLL_MS:2000}")
+    @Scheduled(scheduler="reviewedPlatePublicationExecutor",fixedDelayString="${VIDEO_REVIEWED_PLATE_POLL_MS:2000}")
     public void tick(){try{publisher.processOne();}catch(RuntimeException unavailable){LOG.warn("Reviewed plate publication deferred ({})",unavailable.getClass().getSimpleName());}}
     @Configuration
     static class Scheduling {
         @Bean("taskScheduler")
         ThreadPoolTaskScheduler defaults(){var scheduler=new ThreadPoolTaskScheduler();scheduler.setPoolSize(1);scheduler.setThreadNamePrefix("core-scheduled-");scheduler.setDaemon(true);return scheduler;}
-        @Bean("reviewedPlateScheduler")
+        @Bean("reviewedPlatePublicationExecutor")
         ThreadPoolTaskScheduler scheduler(){var scheduler=new ThreadPoolTaskScheduler();scheduler.setPoolSize(1);scheduler.setThreadNamePrefix("reviewed-plate-");scheduler.setDaemon(true);scheduler.setWaitForTasksToCompleteOnShutdown(false);scheduler.setRemoveOnCancelPolicy(true);return scheduler;}
     }
 }
