@@ -1,6 +1,7 @@
 import {chineseMessage} from './chinese-copy.js'
 import {FloatingNotice,InfoBubble} from './Feedback.jsx'
 import React, { useEffect, useRef, useState } from 'react'
+import {releaseDetachedVideo} from './media-playback.js'
 import PasswordLogin from './PasswordLogin.jsx'
 import { readSearchResponse } from './search-response.js'
 import SearchGuidance,{SearchClarification} from './SearchGuidance.jsx'
@@ -85,7 +86,7 @@ export function VideoDialog({ item, onClose, recordingReview=false }) {
   const panel = useModal(onClose), [error,setError] = useState(''), [positionNote,setPositionNote] = useState(''), [attempt,setAttempt] = useState(0)
   const offsetMs = videoOffsetMs(item), offset = offsetMs === null ? null : offsetMs / 1000
   const playback=useRef(null)
-  useEffect(()=>{const element=playback.current;return()=>{if(element){element.pause();element.removeAttribute('src');element.load()}}},[attempt,item.frame_id,recordingReview])
+  useEffect(()=>{const element=playback.current;return()=>releaseDetachedVideo(element)},[attempt,item.frame_id,recordingReview])
   return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section ref={panel} tabIndex={-1} className="video-dialog" role="dialog" aria-modal="true" aria-labelledby="video-title"><div className="dialog-heading"><div><p className="eyebrow">录像回放</p><h2 id="video-title">{item.camera_name || item.camera_id || '监控点位'}</h2></div><InfoBubble title="录像位置说明"><p>{positionNote || (offset === null ? '该线索的片内位置未知，录像从头显示。' : item.video?.kind === 'session_segment' ? '已定位到该关键帧所在的同会话录像片段。' : '定位为文件内近似位置；来源拍摄时间以已核实的信息为准。')}</p></InfoBubble><button className="dialog-close" onClick={onClose} aria-label="关闭录像">×</button></div><video ref={playback} key={attempt} controls preload="metadata" src={recordingReview?`/api/admin/recording-review/frames/${encodeURIComponent(item.frame_id)}/video`:`/api/v1/frames/${encodeURIComponent(item.frame_id)}/archive`} onError={() => setError('当前录像无法加载或浏览器不支持其编码，请稍后重试。')} onLoadedMetadata={event => { setError(''); setPositionNote(''); if (offset !== null && Number.isFinite(event.currentTarget.duration)) { if (offset < event.currentTarget.duration) event.currentTarget.currentTime = offset; else setPositionNote('记录的位置超出当前片段范围，请重新打开线索详情。') } }} />{error && <FloatingNotice className="notice error" role="alert"><p>{error}</p><button type="button" className="text-button" onClick={() => { setError(''); setPositionNote(''); setAttempt(value => value+1) }}>重新加载</button></FloatingNotice>}</section></div>
 }
 

@@ -1,4 +1,4 @@
--- Application version: 0.22.0. Additive: preserve all existing results and leases.
+-- Application version: 0.22.1. Additive: preserve all existing results and leases.
 CREATE TABLE IF NOT EXISTS analysis_result_sources (
     source_id uuid PRIMARY KEY,
     frame_id uuid NOT NULL UNIQUE REFERENCES capture_outbox(frame_id),

@@ -1,4 +1,4 @@
--- Application version: 0.22.0. Frozen routes and auditable selective admissions.
+-- Application version: 0.22.1. Frozen routes and auditable selective admissions.
 ALTER TABLE specialist_analysis_jobs ADD COLUMN IF NOT EXISTS routing_snapshot jsonb;
 ALTER TABLE specialist_analysis_jobs ADD COLUMN IF NOT EXISTS routing_sha256 text;
 ALTER TABLE specialist_analysis_jobs ADD COLUMN IF NOT EXISTS selection_priority smallint NOT NULL DEFAULT 0 CHECK(selection_priority BETWEEN 0 AND 2);
