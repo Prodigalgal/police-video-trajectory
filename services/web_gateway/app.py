@@ -472,7 +472,6 @@ def create_app(config=None, transport=None):
         if cfg.get('live_view'):result['live_view']=True
         if directory and cfg.get('recording_review'):result['recording_review']=True
         if directory and cfg.get('processing_trace'):result['processing_trace']=True
-        if directory:result['pipeline_features']=True
         return result
 
     if cfg.get('evaluation_root'):

@@ -1,4 +1,4 @@
--- Application version: 0.29.0. Additive frozen provenance, never a confidence claim.
+-- Application version: 0.29.1. Additive frozen provenance, never a confidence claim.
 CREATE TABLE IF NOT EXISTS analysis_artifacts (
  artifact_sha256 text PRIMARY KEY CHECK(artifact_sha256 ~ '^[0-9a-f]{64}$'),
  content text NOT NULL,
