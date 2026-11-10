@@ -1,5 +1,7 @@
 package cn.trial.videosearch.ingest;
 
+import static cn.trial.videosearch.support.CatalogTestSources.none;
+
 import cn.trial.videosearch.evidence.*;
 import cn.trial.videosearch.search.SearchOrchestrator;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,7 +33,7 @@ public final class SpecialistSelectionCheck {
         Path temporary=path.resolveSibling("catalog.new");Files.writeString(temporary,JSON.writeValueAsString(value));Files.move(temporary,path,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
     }
     private static SpecialistJobs service(JdbcTemplate db,DataSourceTransactionManager manager,AnalysisInputs inputs,SearchOrchestrator search,Path catalog,int budget){
-        return new SpecialistJobs(db,inputs,search,manager,true,"",100,1,3,new ProcessingCatalog(catalog.toString()),new SpecialistAdmission(db,true,POLICY,300,budget,new PlateEventResults(db,100)),new PlateEventResults(db,3));
+        return new SpecialistJobs(db,inputs,search,manager,true,"",100,1,3,new ProcessingCatalog(catalog.toString(), none()),new SpecialistAdmission(db,true,POLICY,300,budget,new PlateEventResults(db,100)),new PlateEventResults(db,3));
     }
     static Map<String,Object> selection(Map<String,Object> source,Map<String,Object> plan,Map<String,Object> target,String state)throws Exception{
         String frame=source.get("frame_id").toString(),sha=(String)source.get("payload_sha256"),id=(String)target.get("target_id");

@@ -456,6 +456,8 @@ def create_app(config=None, transport=None):
     mount_processing_trace(app,cfg,authenticated,origin_ok)
     from .pipeline_features_api import mount_pipeline_features
     mount_pipeline_features(app,cfg,authenticated,origin_ok)
+    from .local_models_api import mount_local_models
+    mount_local_models(app,cfg,authenticated,origin_ok)
 
     @app.get('/api/v1/features')
     async def features(request:Request):

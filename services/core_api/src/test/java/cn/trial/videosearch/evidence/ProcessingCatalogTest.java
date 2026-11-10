@@ -1,5 +1,7 @@
 package cn.trial.videosearch.evidence;
 
+import static cn.trial.videosearch.support.CatalogTestSources.none;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
@@ -15,7 +17,7 @@ class ProcessingCatalogTest {
     private void write(Path path,Object value)throws Exception{Files.writeString(path,JSON.writeValueAsString(value));}
 
     @Test void hotSwitchKeepsOldBindingAndRejectsBrokenOrReusedRevision()throws Exception{
-        Path file=root.resolve("catalog.json");write(file,value(1,"a"));var catalog=new ProcessingCatalog(file.toString());
+        Path file=root.resolve("catalog.json");write(file,value(1,"a"));var catalog=new ProcessingCatalog(file.toString(), none());
         var a=catalog.binding("license_plate","");write(file,value(2,"b"));var b=catalog.binding("license_plate","");
         assertEquals("a",a.profile());assertEquals("b",b.profile());assertNotEquals(a.encoded().sha256(),b.encoded().sha256());
         write(file,value(2,"a"));assertEquals("processing_catalog_unavailable",assertThrows(InputRejected.class,()->catalog.binding("license_plate","")).code);
@@ -23,7 +25,7 @@ class ProcessingCatalogTest {
         write(file,value(3,"a"));assertEquals("a",catalog.binding("license_plate","").profile());
     }
     @Test void profileCannotChangeInPlaceAndDisabledModuleHasNoFallback()throws Exception{
-        Path file=root.resolve("catalog.json");write(file,value(1,"a"));var catalog=new ProcessingCatalog(file.toString());catalog.current();
+        Path file=root.resolve("catalog.json");write(file,value(1,"a"));var catalog=new ProcessingCatalog(file.toString(), none());catalog.current();
         var changed=new LinkedHashMap<String,Object>(value(2,"a"));var replacement=profile("a");replacement.put("model_id","replacement");changed.put("profiles",List.of(replacement,profile("b")));write(file,changed);
         assertThrows(InputRejected.class,catalog::current);
         changed=new LinkedHashMap<>(value(3,"a"));changed.put("modules",Map.of("license_plate",Map.of("enabled",false,"profile","a")));write(file,changed);
@@ -37,7 +39,7 @@ class ProcessingCatalogTest {
         var definition=profile("a");definition.put("base_url","http://example.invalid");assertThrows(RuntimeException.class,()->ProcessingCatalog.profile(definition));
     }
     @Test void legacyBindingDoesNotRequireAFile(){
-        var catalog=new ProcessingCatalog("");var binding=catalog.binding("license_plate","legacy");
+        var catalog=new ProcessingCatalog("", none());var binding=catalog.binding("license_plate","legacy");
         assertFalse(catalog.configured());assertEquals("legacy",binding.profile());assertNull(binding.route());
     }
 }

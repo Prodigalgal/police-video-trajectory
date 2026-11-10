@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react'
 import {FloatingNotice,InfoBubble} from './Feedback.jsx'
 import {useModal} from './use-modal.js'
+import LocalModelsPanel from './LocalModelsPanel.jsx'
 import {formatTime} from './result-format.js'
 import {chineseMessage} from './chinese-copy.js'
 import {modelErrors,roleLabels,selectionKey,selectionValue,latestProfiles,appliedConsumers,commandRequest} from './managed-models.js'
@@ -60,5 +61,6 @@ export default function ManagedModelsPanel({refresh,onError,api}){
       </form>{data.consumers.map(consumer=><p className="admin-muted" key={consumer.consumer_id}>网关 {consumer.consumer_id} · 已加载版本 {consumer.revision} · {formatTime(consumer.seen_at)}</p>)}</section>
       <section className="admin-card"><div className="admin-card-heading"><h2>模型配置</h2><span className="admin-muted">共 {latest.length} 个模型</span></div><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>名称</th><th>提供商</th><th>协议</th><th>能力</th><th>状态</th><th>修订</th><th>操作</th></tr></thead><tbody>{latest.map(profile=>{const provider=data.providers.find(value=>value.id===profile.provider);return <tr key={profile.profile_id}><td><strong>{profile.display_name}</strong><details><summary>模型标识与地址</summary><p>{profile.model}</p><p>{profile.base_url}</p></details></td><td>{provider?.label||'提供商不可用'}</td><td>{profile.protocol==='responses'?'响应协议':'对话协议'}</td><td>{profile.roles.map(role=><span className="admin-badge" key={role}>{roleLabels[role]}</span>)}</td><td><span className="admin-badge">{provider?.activation_allowed?'可绑定':'仅保存'}</span></td><td>{profile.version}</td><td><button className="text-button" disabled={busy} onClick={()=>setDialog({profile})}>编辑模型</button></td></tr>})}</tbody></table></div>{!latest.length&&<p className="admin-empty">尚未保存可管理的模型配置。</p>}</section></>}
     {saved?.length>0&&<section className="admin-card"><details><summary>已有端点存档</summary>{saved.map((profile,index)=><article className="admin-saved-model" key={index}><h3>{profile.model}</h3><p>{profile.provider} · {profile.base_url}</p><p className="admin-muted">已保存端点；当前使用状态以上方用途绑定为准。</p></article>)}</details></section>}
+    <LocalModelsPanel refresh={refresh} onError={onError}/>
     {dialog&&data&&<ModelDialog profile={dialog.profile} providers={data.providers} api={api} onClose={()=>setDialog(null)} onSaved={()=>{setDialog(null);setMessage('新修订已保存，选择用途绑定后生效。');setReload(value=>value+1)}} onError={onError}/>}</>
 }

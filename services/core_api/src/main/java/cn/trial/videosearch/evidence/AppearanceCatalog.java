@@ -1,6 +1,8 @@
 package cn.trial.videosearch.evidence;
 
 import cn.trial.videosearch.support.CanonicalJson;
+import cn.trial.videosearch.models.ManagedCatalogStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
@@ -14,27 +16,45 @@ public class AppearanceCatalog {
     private final Path path;
     private final Map<String,String> known=new HashMap<>();
     private long revision;private String digest;
-    public AppearanceCatalog(@Value("${VIDEO_APPEARANCE_CATALOG_FILE:}")String path){this.path=path.isBlank()?null:Path.of(path);}
+    private long sourceRevision;private String sourceDigest;
+    private final ObjectProvider<ManagedCatalogStore> managed;
+    public AppearanceCatalog(@Value("${VIDEO_APPEARANCE_CATALOG_FILE:}")String path,ObjectProvider<ManagedCatalogStore> managed){this.path=path.isBlank()?null:Path.of(path);this.managed=managed;}
+    public boolean configured(){return path!=null;}
     public record Profile(String id,String sha256,int dimensions,Map<String,Object> definition){}
     public record Snapshot(long revision,String active,Map<String,Profile> profiles) {public Profile selected(){return profiles.get(active);}}
     public synchronized Snapshot current(){
+        var baseline=installed();
+        try{
+            var store=managed.getIfAvailable();var value=store==null?baseline.definition():store.resolve(baseline);
+            var snapshot=parseSnapshot(value);String sha=CanonicalJson.encode(value,32768).sha256();
+            if(snapshot.revision()<revision||snapshot.revision()==revision&&digest!=null&&!digest.equals(sha))throw new IllegalArgumentException();
+            revision=snapshot.revision();digest=sha;return snapshot;
+        }catch(InputRejected failure){throw failure;}
+        catch(Exception failure){throw new InputRejected(503,"appearance_catalog_unavailable");}
+    }
+    public synchronized ManagedCatalogStore.Baseline installed(){
         try{
             if(path==null)throw new IllegalArgumentException();
             byte[] raw;try(var input=Files.newInputStream(path)){raw=input.readNBytes(32769);}
             if(raw.length>32768)throw new IllegalArgumentException();
             var value=object(JSON.readValue(raw,Object.class));
-            keys(value,"schema_version","revision","active","profiles");
-            if(!"appearance-catalog-v1".equals(value.get("schema_version")))throw new IllegalArgumentException();
-            long next=integer(value.get("revision"),1,9007199254740991L);
-            if(!(value.get("profiles") instanceof List<?> list)||list.isEmpty()||list.size()>8)throw new IllegalArgumentException();
-            var profiles=new LinkedHashMap<String,Profile>();
-            for(var entry:list){var profile=parse(object(entry));if(profiles.put(profile.id(),profile)!=null||known.containsKey(profile.id())&&!known.get(profile.id()).equals(profile.sha256()))throw new IllegalArgumentException();}
-            if(!(value.get("active") instanceof String active)||!profiles.containsKey(active))throw new IllegalArgumentException();
+            var snapshot=parseSnapshot(value);long next=snapshot.revision();
             String sha=CanonicalJson.encode(value,32768).sha256();
-            if(next<revision||next==revision&&digest!=null&&!digest.equals(sha))throw new IllegalArgumentException();
-            profiles.values().forEach(profile->known.put(profile.id(),profile.sha256()));revision=next;digest=sha;
-            return new Snapshot(next,active,Map.copyOf(profiles));
+            if(next<sourceRevision||next==sourceRevision&&sourceDigest!=null&&!sourceDigest.equals(sha))throw new IllegalArgumentException();
+            for(var profile:snapshot.profiles().values())if(known.containsKey(profile.id())&&!known.get(profile.id()).equals(profile.sha256()))throw new IllegalArgumentException();
+            snapshot.profiles().values().forEach(profile->known.put(profile.id(),profile.sha256()));sourceRevision=next;sourceDigest=sha;
+            return new ManagedCatalogStore.Baseline("appearance",next,sha,Map.copyOf(value));
         }catch(Exception failure){throw new InputRejected(503,"appearance_catalog_unavailable");}
+    }
+    private static Snapshot parseSnapshot(Map<String,Object> value){
+        keys(value,"schema_version","revision","active","profiles");
+        if(!"appearance-catalog-v1".equals(value.get("schema_version")))throw new IllegalArgumentException();
+        long next=integer(value.get("revision"),1,9007199254740991L);
+        if(!(value.get("profiles") instanceof List<?> list)||list.isEmpty()||list.size()>8)throw new IllegalArgumentException();
+        var profiles=new LinkedHashMap<String,Profile>();
+        for(var entry:list){var profile=parse(object(entry));if(profiles.put(profile.id(),profile)!=null)throw new IllegalArgumentException();}
+        if(!(value.get("active") instanceof String active)||!profiles.containsKey(active))throw new IllegalArgumentException();
+        return new Snapshot(next,active,Map.copyOf(profiles));
     }
     static Profile parse(Map<String,Object> value){
         keys(value,"profile","adapter","model_file","model_sha256","dimensions","normalization","output","preprocessing");

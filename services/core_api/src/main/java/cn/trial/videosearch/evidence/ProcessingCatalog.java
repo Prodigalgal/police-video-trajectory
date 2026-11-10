@@ -1,6 +1,8 @@
 package cn.trial.videosearch.evidence;
 
 import cn.trial.videosearch.support.CanonicalJson;
+import cn.trial.videosearch.models.ManagedCatalogStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
@@ -19,26 +21,40 @@ public class ProcessingCatalog {
     private final Map<String,String> definitions=new HashMap<>();
     private long lastRevision;
     private String lastSha;
+    private long sourceRevision;private String sourceSha;
+    private final ObjectProvider<ManagedCatalogStore> managed;
 
-    public ProcessingCatalog(@Value("${VIDEO_PROCESSING_CATALOG_FILE:}")String file){path=file.isBlank()?null:Path.of(file);}
+    public ProcessingCatalog(@Value("${VIDEO_PROCESSING_CATALOG_FILE:}")String file,ObjectProvider<ManagedCatalogStore> managed){path=file.isBlank()?null:Path.of(file);this.managed=managed;}
     public record Snapshot(long revision,String sha256,Map<String,Object> modules,Map<String,Map<String,Object>> profiles){}
     public record Binding(String profile,Map<String,Object> route,CanonicalJson.Encoded encoded,String selectionPolicy,long catalogRevision){}
     public boolean configured(){return path!=null;}
 
     public synchronized Snapshot current(){
+        var baseline=installed();if(baseline==null)return null;
+        try{
+            var store=managed.getIfAvailable();var value=store==null?baseline.definition():store.resolve(baseline);
+            Snapshot snapshot=parse(value);
+            if(snapshot.revision()<lastRevision||snapshot.revision()==lastRevision&&lastSha!=null&&!lastSha.equals(snapshot.sha256()))throw new IllegalArgumentException();
+            lastRevision=snapshot.revision();lastSha=snapshot.sha256();return snapshot;
+        }catch(InputRejected failure){throw failure;}
+        catch(Exception failure){throw new InputRejected(503,"processing_catalog_unavailable");}
+    }
+
+    public synchronized ManagedCatalogStore.Baseline installed(){
         if(path==null)return null;
         try{
             byte[] raw;
             try(var stream=Files.newInputStream(path)){raw=stream.readNBytes(MAX_BYTES+1);}
             if(raw.length==0||raw.length>MAX_BYTES)throw new IllegalArgumentException();
-            Snapshot snapshot=parse(SpecialistResult.object(JSON.readValue(raw,Object.class)));
-            if(snapshot.revision()<lastRevision||snapshot.revision()==lastRevision&&lastSha!=null&&!lastSha.equals(snapshot.sha256()))throw new IllegalArgumentException();
+            var value=SpecialistResult.object(JSON.readValue(raw,Object.class));Snapshot snapshot=parse(value);
+            if(snapshot.revision()<sourceRevision||snapshot.revision()==sourceRevision&&sourceSha!=null&&!sourceSha.equals(snapshot.sha256()))throw new IllegalArgumentException();
             for(var entry:snapshot.profiles().entrySet()){
                 String sha=CanonicalJson.encode(entry.getValue(),16384).sha256();
                 if(definitions.containsKey(entry.getKey())&&!sha.equals(definitions.get(entry.getKey())))throw new IllegalArgumentException();
             }
             for(var entry:snapshot.profiles().entrySet())definitions.put(entry.getKey(),CanonicalJson.encode(entry.getValue(),16384).sha256());
-            lastRevision=snapshot.revision();lastSha=snapshot.sha256();return snapshot;
+            sourceRevision=snapshot.revision();sourceSha=snapshot.sha256();
+            return new ManagedCatalogStore.Baseline("processing",snapshot.revision(),snapshot.sha256(),Map.copyOf(value));
         }catch(Exception failure){throw new InputRejected(503,"processing_catalog_unavailable");}
     }
 

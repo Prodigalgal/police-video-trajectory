@@ -1,5 +1,7 @@
 package cn.trial.videosearch.evidence;
 
+import static cn.trial.videosearch.support.CatalogTestSources.none;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.*;
@@ -36,7 +38,7 @@ class AppearanceContractsTest {
     }
     @Test void catalogIsBoundedAndCannotChangeProfileUnderExistingId() throws Exception {
         Path original=Path.of("../../deploy/appearance-catalog.json");String source=Files.readString(original);Path path=temp.resolve("catalog.json");Files.writeString(path,source);
-        var catalog=new AppearanceCatalog(path.toString());var profile=catalog.current().selected();assertEquals(384,profile.dimensions());assertEquals("68a93a786848c4e99eb969bc081413a0560a21952f9f9ab55fa129c27a1efdd5",profile.sha256());
+        var catalog=new AppearanceCatalog(path.toString(), none());var profile=catalog.current().selected();assertEquals(384,profile.dimensions());assertEquals("68a93a786848c4e99eb969bc081413a0560a21952f9f9ab55fa129c27a1efdd5",profile.sha256());
         Files.writeString(path,source.replace("\"revision\": 1","\"revision\": 2").replace("3afdc8bc63b50558d6e5770f5b799bb82455c2311183a2de43803f343a29d917","0".repeat(64)));
         assertThrows(InputRejected.class,catalog::current);
     }

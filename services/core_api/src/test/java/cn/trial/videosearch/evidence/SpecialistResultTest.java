@@ -1,5 +1,7 @@
 package cn.trial.videosearch.evidence;
 
+import static cn.trial.videosearch.support.CatalogTestSources.none;
+
 import cn.trial.videosearch.search.SearchOrchestrator;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,11 +23,11 @@ class SpecialistResultTest {
     }
     @Test void disabledOrUnconfiguredServiceCreatesNoWorkAndReadsNoPixels(){
         var db=mock(JdbcTemplate.class);var inputs=mock(AnalysisInputs.class);var search=mock(SearchOrchestrator.class);var manager=mock(PlatformTransactionManager.class);var create=new SpecialistJobs.Create(UUID.randomUUID(),"a".repeat(64),"license_plate");
-        var disabled=new SpecialistJobs(db,inputs,search,manager,false,"",100,1,3,new ProcessingCatalog(""),new SpecialistAdmission(db,false,"",5,2,new PlateEventResults(db,3)),mock(PlateEventResults.class));assertEquals("specialist_disabled",assertThrows(InputRejected.class,()->disabled.create(UUID.randomUUID(),create,"reader")).code);verifyNoInteractions(db,inputs,search,manager);
-        var unconfigured=new SpecialistJobs(db,inputs,search,manager,true,"",100,1,3,new ProcessingCatalog(""),new SpecialistAdmission(db,false,"",5,2,new PlateEventResults(db,3)),mock(PlateEventResults.class));assertEquals("specialist_not_configured",assertThrows(InputRejected.class,()->unconfigured.create(UUID.randomUUID(),create,"reader")).code);verifyNoInteractions(inputs,manager);
+        var disabled=new SpecialistJobs(db,inputs,search,manager,false,"",100,1,3,new ProcessingCatalog("", none()),new SpecialistAdmission(db,false,"",5,2,new PlateEventResults(db,3)),mock(PlateEventResults.class));assertEquals("specialist_disabled",assertThrows(InputRejected.class,()->disabled.create(UUID.randomUUID(),create,"reader")).code);verifyNoInteractions(db,inputs,search,manager);
+        var unconfigured=new SpecialistJobs(db,inputs,search,manager,true,"",100,1,3,new ProcessingCatalog("", none()),new SpecialistAdmission(db,false,"",5,2,new PlateEventResults(db,3)),mock(PlateEventResults.class));assertEquals("specialist_not_configured",assertThrows(InputRejected.class,()->unconfigured.create(UUID.randomUUID(),create,"reader")).code);verifyNoInteractions(inputs,manager);
     }
     @Test void nullCapabilitiesAndNullOperationsDoNotBecomeServerFailures(){
-        var jobs=new SpecialistJobs(mock(JdbcTemplate.class),mock(AnalysisInputs.class),mock(SearchOrchestrator.class),mock(PlatformTransactionManager.class),true,"profile",100,1,3,new ProcessingCatalog(""),mock(SpecialistAdmission.class),mock(PlateEventResults.class));
+        var jobs=new SpecialistJobs(mock(JdbcTemplate.class),mock(AnalysisInputs.class),mock(SearchOrchestrator.class),mock(PlatformTransactionManager.class),true,"profile",100,1,3,new ProcessingCatalog("", none()),mock(SpecialistAdmission.class),mock(PlateEventResults.class));
         assertThrows(IllegalArgumentException.class,()->jobs.claim("worker",120,"profile",Arrays.asList((String)null)));
         assertThrows(IllegalArgumentException.class,()->jobs.create(UUID.randomUUID(),new SpecialistJobs.Create(UUID.randomUUID(),"a".repeat(64),null),"reader"));
     }

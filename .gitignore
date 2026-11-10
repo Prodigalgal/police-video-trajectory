@@ -75,6 +75,7 @@ tests/*
 !tests/test_session_media.py
 !tests/test_recording_control.py
 !tests/test_pipeline_features_api.py
+!tests/test_local_models_api.py
 web/tests/fixtures/
 web/tests/clue-client.test.mjs
 services/core_api/src/test/resources/fixtures/

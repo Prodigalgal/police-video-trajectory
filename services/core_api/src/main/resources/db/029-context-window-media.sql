@@ -1,4 +1,4 @@
--- Application version: 0.29.1. Extend only explicit v2 session inputs; archive limits remain unchanged.
+-- Application version: 0.30.0. Extend only explicit v2 session inputs; archive limits remain unchanged.
 ALTER TABLE media_production_jobs DROP CONSTRAINT IF EXISTS media_production_jobs_check;
 ALTER TABLE media_production_jobs DROP CONSTRAINT IF EXISTS media_production_jobs_window_check;
 ALTER TABLE media_production_jobs ADD CONSTRAINT media_production_jobs_window_check CHECK (

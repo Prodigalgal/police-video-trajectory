@@ -1,5 +1,7 @@
 package cn.trial.videosearch.ingest;
 
+import static cn.trial.videosearch.support.CatalogTestSources.none;
+
 import cn.trial.videosearch.evidence.*;
 import cn.trial.videosearch.search.SearchOrchestrator;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,7 +22,7 @@ public final class SpecialistCandidateCheck {
     private static void reject(Runnable action,String code){try{action.run();throw new IllegalStateException("missing "+code);}catch(InputRejected failure){check(code.equals(failure.code),"expected "+code+" got "+failure.code);}}
     private static SpecialistJobs jobs(JdbcTemplate db,DataSourceTransactionManager manager,AnalysisInputs inputs,SearchOrchestrator search,String profile,int capacity,String catalog){
         var ledger=new PlateEventResults(db,100);
-        return new SpecialistJobs(db,inputs,search,manager,true,profile,capacity,1,3,new ProcessingCatalog(catalog),new SpecialistAdmission(db,true,POLICY,300,100,ledger),ledger);
+        return new SpecialistJobs(db,inputs,search,manager,true,profile,capacity,1,3,new ProcessingCatalog(catalog, none()),new SpecialistAdmission(db,true,POLICY,300,100,ledger),ledger);
     }
     private static Map<String,Object> row(JdbcTemplate db,UUID id){return db.queryForList("SELECT * FROM specialist_candidates WHERE candidate_id=?",id).getFirst();}
     private static SpecialistCandidates.Lease claim(JdbcTemplate db,SpecialistCandidates queue,UUID id,String owner){
