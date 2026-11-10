@@ -1,4 +1,4 @@
--- Application version: 0.30.0. Credentials stay in mounted provider Secrets.
+-- Application version: 0.30.1. Credentials stay in mounted provider Secrets.
 CREATE TABLE IF NOT EXISTS model_profiles (
     profile_id uuid NOT NULL,
     version integer NOT NULL CHECK (version > 0),

@@ -12,7 +12,7 @@ public class SpecialistCandidateProducer {
     private static final Set<String> INVALID_SOURCE=Set.of("candidate_source_changed","input_source_changed","input_manifest_changed","input_evidence_changed",
         "observation_revision_conflict","input_unavailable","observation_unavailable","input_source_unavailable","specialist_input_changed");
     private static final Set<String> CONFIGURATION=Set.of("specialist_not_configured","specialist_disabled","specialist_module_disabled",
-        "processing_catalog_unavailable","processing_profile_conflict");
+        "processing_catalog_unavailable","processing_profile_conflict","model_catalog_source_changed","model_catalog_unavailable");
     private final SpecialistCandidates candidates;
     private final AnalysisInputs inputs;
     private final SpecialistJobs jobs;

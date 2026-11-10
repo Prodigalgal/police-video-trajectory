@@ -49,6 +49,14 @@ class SpecialistCandidateProducerTest {
         verify(candidates).finish(lease,SUBMITTED,"specialist_job_registered",0,job,false);
         assertNotEquals(SpecialistCandidates.request(id,"input"),SpecialistCandidates.request(id,"job"));
     }
+    @ParameterizedTest @ValueSource(strings={"model_catalog_source_changed","model_catalog_unavailable"})
+    void managedCatalogFailuresWaitForConfigurationWithoutExhaustingTheCandidate(String code){
+        var lease=lease(null,4);available(lease);
+        when(jobs.capabilities()).thenThrow(new InputRejected(code.equals("model_catalog_source_changed")?409:503,code));
+        producer.process(lease);
+        verify(candidates).finish(lease,WAITING_CONFIGURATION,code,30,null,false);
+        verifyNoInteractions(inputs);verify(jobs,never()).create(any(),any(),any());
+    }
     @Test void lostAcknowledgementReplaysBeforeReadingChangedOrBrokenConfiguration(){
         var lease=lease(input,0);available(lease);when(jobs.replayCreate(eq(input),any(),eq("specialist-producer"))).thenReturn(Optional.of(Map.of("job_id",job.toString())));
         producer.process(lease);verify(jobs,never()).capabilities();verify(jobs,never()).selection(any());verify(jobs,never()).create(any(),any(),any());
