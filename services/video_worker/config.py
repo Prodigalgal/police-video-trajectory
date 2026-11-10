@@ -85,6 +85,7 @@ class Settings:
     live_recording_bytes:int=512*1024*1024
     live_recording_retention_seconds:int=60
     live_recording_segment_seconds:int=5
+    live_recording_context_seconds:int=10
     media_jobs_enabled:bool=False
     media_slots:int=1
     media_job_timeout_seconds:int=480
@@ -155,6 +156,7 @@ class Settings:
                    capture_analysis_handoff_enabled=get('CAPTURE_ANALYSIS_HANDOFF_ENABLED','true')=='true',
                    live_recording_bytes=int(get('LIVE_RECORDING_BYTES',str(512*1024*1024))),live_recording_retention_seconds=int(get('LIVE_RECORDING_RETENTION_SECONDS','60')),
                    live_recording_segment_seconds=int(get('LIVE_RECORDING_SEGMENT_SECONDS','5')),
+                   live_recording_context_seconds=int(get('LIVE_RECORDING_CONTEXT_SECONDS','10')),
                    media_jobs_enabled=get('MEDIA_JOBS_ENABLED','false')=='true',media_slots=int(get('MEDIA_SLOTS','1')),
                    media_job_timeout_seconds=int(get('MEDIA_JOB_TIMEOUT_SECONDS','480')),media_clip_dir=Path(get('MEDIA_CLIP_DIR','/media-clips')),
                    media_clip_bytes=int(get('MEDIA_CLIP_BYTES',str(2*1024*1024*1024))),media_clip_entries=int(get('MEDIA_CLIP_ENTRIES','64')))
@@ -185,6 +187,8 @@ class Settings:
         if role=='ingest' and self.live_recording_enabled:
             if (not self.target_pipeline or self.scene_policy!='activity_v1' or not 32*1024*1024<=self.live_recording_bytes<=8*1024*1024*1024
                     or not 10<=self.live_recording_retention_seconds<=3600 or not 2<=self.live_recording_segment_seconds<=10
+                    or type(self.live_recording_context_seconds) is not int or self.live_recording_context_seconds not in (0,3,5,10)
+                    or self.live_recording_context_seconds>0 and self.live_recording_bytes<256*1024*1024
                     or self.live_recording_dir.resolve().is_relative_to(self.archive_dir.resolve())):raise ValueError('invalid same-session recording configuration')
         if role in {'analyze','modules','media','specialist'} and (self.model_timeout!=360 or
                 any(type(value) is not int for value in (self.analysis_slots,self.analysis_lease_seconds,

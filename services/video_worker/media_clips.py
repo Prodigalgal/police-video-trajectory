@@ -143,6 +143,7 @@ def validate_request(source_id,camera,start_ms,end_ms,clip_id):
 
 
 def _decode(source,staging,start_ms,end_ms,deadline):
+    if not 2000<=end_ms-start_ms<=75000:raise MediaError('media_invalid_window')
     import av
     import cv2
     cv2.setNumThreads(1)
@@ -178,7 +179,7 @@ def _decode(source,staging,start_ms,end_ms,deadline):
                 resized=frame.reformat(width=width,height=height,format='yuv420p')
                 if sample_due:
                     ok,jpeg=cv2.imencode('.jpg',resized.to_ndarray(format='bgr24'),[cv2.IMWRITE_JPEG_QUALITY,90])
-                    if not ok or jpeg.nbytes>8*1024*1024 or len(samples)>=31:raise MediaError('media_sample_encoding_failed')
+                    if not ok or jpeg.nbytes>8*1024*1024 or len(samples)>=(end_ms-start_ms)//1000+1:raise MediaError('media_sample_encoding_failed')
                     index=len(samples);raw=jpeg.tobytes();(staging/f'sample-{index:03}.jpg').write_bytes(raw)
                     samples.append({'index':index,'source_pts_us':pts,'offset_ms':round((pts-first)/1000),'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()})
                     next_sample=first+((pts-first)//1000000+1)*1000000
@@ -204,7 +205,9 @@ def committed_result(final,expected,deadline):
     manifest_path=final/'manifest.json'
     if final.is_symlink() or digest_file(manifest_path,MAX_MANIFEST_BYTES,deadline)['bytes']==0:raise MediaError('media_conflicting_replay')
     manifest=json.loads(manifest_path.read_bytes())
-    if not isinstance(manifest,dict) or any(manifest.get(key)!=value for key,value in expected.items()) or not isinstance(manifest.get('samples'),list) or not 2<=len(manifest['samples'])<=31:raise MediaError('media_conflicting_replay')
+    window_ms=expected['requested_end_ms']-expected['requested_start_ms']
+    maximum_samples=min(76,window_ms//1000+1)
+    if not isinstance(manifest,dict) or any(manifest.get(key)!=value for key,value in expected.items()) or not isinstance(manifest.get('samples'),list) or not 2<=len(manifest['samples'])<=maximum_samples:raise MediaError('media_conflicting_replay')
     for index,sample in enumerate(manifest['samples']):
         if sample.get('index')!=index or digest_file(final/f'sample-{index:03}.jpg',8*1024*1024,deadline)!={key:sample[key] for key in ('bytes','sha256')}:raise MediaError('media_conflicting_replay')
     if digest_file(final/'clip.mp4',MAX_ASSET_BYTES,deadline)!={key:manifest['video'][key] for key in ('bytes','sha256')}:raise MediaError('media_conflicting_replay')

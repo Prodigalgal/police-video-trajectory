@@ -14,7 +14,8 @@ for image in (core,runtime):
 root=Path(root)/'police-video-trajectory'
 names={'core-api','web-ui','ai-gateway','rtsp-worker','archive-worker','analysis-worker'}
 initial_flags={'core-api':{'VIDEO_RECORDING_REVIEW_ENABLED':'true'},'web-ui':{'WEB_RECORDING_REVIEW_ENABLED':'true','WEB_PROCESSING_TRACE_ENABLED':'true'},
-               'rtsp-worker':{'LIVE_RECORDING_ENABLED':'true','CAPTURE_ANALYSIS_HANDOFF_ENABLED':'false'}}
+               'rtsp-worker':{'LIVE_RECORDING_ENABLED':'true','LIVE_RECORDING_CONTEXT_SECONDS':'10','CAPTURE_ANALYSIS_HANDOFF_ENABLED':'false'},
+               'archive-worker':{'LIVE_RECORDING_CONTEXT_SECONDS':'10'}}
 for name in sorted(names):
     path=root/'runtime'/(name+'.json')
     value=json.loads(path.read_text())

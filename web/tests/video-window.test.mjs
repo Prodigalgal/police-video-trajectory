@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {boundedVideoTime,videoWindow} from '../src/video-window.js'
+import {boundedVideoTime,contextCoverage,videoWindow} from '../src/video-window.js'
 const item={video:{available:true,kind:'session_segment',recording_id:'00000000-0000-0000-0000-000000000001',seek_offset_ms:8000}}
 test('前后范围只在同一个已绑定录像内播放，定位始终保留有效帧',()=>{
   assert.deepEqual(videoWindow(item,20),{start:3,end:13,anchor:8,mode:'window',reason:null})
@@ -19,4 +19,11 @@ test('拖动和播放时间被截在窗口内，原历史录像仍兼容',()=>{
   assert.equal(boundedVideoTime(0,window),3);assert.equal(boundedVideoTime(19,window),13)
   assert.equal(boundedVideoTime(7.5,window),7.5);assert.throws(()=>boundedVideoTime(NaN,window))
   assert.equal(videoWindow({media_offset_ms:25000},60).start,20)
+})
+
+test('完整与边界覆盖只由实际可播放范围决定，不把选择十秒当作已保留十秒',()=>{
+  assert.deepEqual(contextCoverage(videoWindow(item,40,5),5),{before:5,after:5,requested:5,complete:true})
+  assert.deepEqual(contextCoverage(videoWindow(item,10,10),10),{before:8,after:2,requested:10,complete:false})
+  assert.equal(contextCoverage(videoWindow(item,40,5,'full'),5),null)
+  assert.equal(contextCoverage(null,5),null)
 })

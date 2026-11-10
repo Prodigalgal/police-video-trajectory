@@ -36,7 +36,8 @@ public class MediaClipFiles {
             UUID source=UUID.fromString(text(manifest,"source_id"));Map<String,Object> original=object(manifest,"source"),video=object(manifest,"video"),quality=object(manifest,"quality");
             keys(original,"bytes","sha256");keys(video,"bytes","sha256","width","height","codec","frame_offsets_ms");
             String sourceSha=digest(original);long sourceBytes=number(original,"bytes",1,8L*1024*1024*1024);
-            long start=number(manifest,"requested_start_ms",0,Long.MAX_VALUE-30000),end=number(manifest,"requested_end_ms",start+2000,start+30000);
+            long maxWindowMs=session?NativeRecordingFormat.CONTEXT.maxDurationUs/1000:30000;
+            long start=number(manifest,"requested_start_ms",0,Long.MAX_VALUE-maxWindowMs),end=number(manifest,"requested_end_ms",start+2000,start+maxWindowMs);
             if(session){
                 var input=object(manifest,"session_input");SessionMediaInputs.validateDescriptor(input);
                 if(!source.toString().equals(input.get("source_id"))||!camera.equals(input.get("camera_id"))||!sourceSha.equals(input.get("source_sha256"))||sourceBytes!=((Number)input.get("source_bytes")).longValue()||start!=0||end!=SessionMediaInputs.endMs(input))throw rejected("media_manifest_changed");
@@ -47,10 +48,10 @@ public class MediaClipFiles {
             if(!quality.equals(Map.of("window_complete",true,"source_clock",session?"same_session_segment_relative":"recording_relative","absolute_time_verified",false,"identity_association_verified",false,"inference_invoked",false)))throw rejected("media_manifest_changed");
             long width=number(video,"width",2,1280),height=number(video,"height",2,20000),videoBytes=number(video,"bytes",1,MAX_BYTES);String videoSha=digest(video);
             if(width%2!=0||height%2!=0||width*height>50000000||!"h264".equals(video.get("codec")))throw rejected("media_manifest_changed");
-            List<?> positions=list(video,"frame_offsets_ms",2,301);long previous=-1;
+            List<?> positions=list(video,"frame_offsets_ms",2,(int)(maxWindowMs/100+1));long previous=-1;
             for(Object value:positions){long offset=integer(value,0,(last-first)/1000+1);if(offset<=previous||previous<0&&offset!=0||previous>=0&&offset-previous>350)throw rejected("media_manifest_changed");previous=offset;}
             if((last-first)/1000-previous>350)throw rejected("media_manifest_changed");
-            List<?> samples=list(manifest,"samples",2,31);
+            List<?> samples=list(manifest,"samples",2,(int)(maxWindowMs/1000+1));
             if(mode==Mode.SAMPLE&&(sampleIndex<0||sampleIndex>=samples.size()))throw new InputRejected(404,"media_sample_unavailable");
             long total=videoBytes+raw.length;long previousPts=-1;EvidenceFiles.FrameFile selected=null;
             for(int index=0;index<samples.size();index++){

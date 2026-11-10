@@ -71,6 +71,8 @@ tests/*
 !tests/test_midstream_gitops.py
 !tests/test_inference_receipt.py
 !tests/test_processing_trace_api.py
+!tests/test_recording_windows.py
+!tests/test_session_media.py
 web/tests/fixtures/
 web/tests/clue-client.test.mjs
 services/core_api/src/test/resources/fixtures/

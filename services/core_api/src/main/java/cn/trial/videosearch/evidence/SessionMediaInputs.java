@@ -32,7 +32,8 @@ public class SessionMediaInputs {
     }
     private static Map<String,Object> descriptor(FrameRecordings.Reference reference){
         var nativeRecording=reference.recording();var manifest=nativeRecording.manifest();var capture=reference.capture();
-        var value=new LinkedHashMap<String,Object>();value.putAll(Map.of("version",VERSION,"source_id",capture.get("source_id").toString(),"camera_id",capture.get("camera_id"),
+        var format=NativeRecordingFormat.manifest(manifest.get("schema_version"));
+        var value=new LinkedHashMap<String,Object>();value.putAll(Map.of("version",format.inputVersion,"source_id",capture.get("source_id").toString(),"camera_id",capture.get("camera_id"),
             "source_fingerprint",MediaSourceIdentity.fingerprint(capture),"namespace",reference.namespace(),"segment_id",reference.segmentId().toString(),
             "recording_manifest_sha256",nativeRecording.sha256(),"source_sha256",((Map<?,?>)manifest.get("video")).get("sha256"),"source_bytes",nativeRecording.bytes()));
         value.putAll(Map.of("duration_us",nativeRecording.durationUs(),"task_id",manifest.get("task_id"),"task_generation",manifest.get("task_generation"),"scene_run_id",manifest.get("scene_run_id"),"media_epoch",manifest.get("media_epoch"),"base_pts_us",nativeRecording.basePtsUs()));
@@ -92,11 +93,12 @@ public class SessionMediaInputs {
     }
     public static void validateDescriptor(Map<String,Object> value){
         try{
-            if(value==null||!value.keySet().equals(Set.of("version","source_id","camera_id","source_fingerprint","namespace","segment_id","recording_manifest_sha256","source_sha256","source_bytes","duration_us","task_id","task_generation","scene_run_id","media_epoch","base_pts_us"))||!VERSION.equals(value.get("version")))throw changed();
+            if(value==null||!value.keySet().equals(Set.of("version","source_id","camera_id","source_fingerprint","namespace","segment_id","recording_manifest_sha256","source_sha256","source_bytes","duration_us","task_id","task_generation","scene_run_id","media_epoch","base_pts_us")))throw changed();
+            var format=NativeRecordingFormat.input(value.get("version"));
             for(String key:List.of("source_id","segment_id","task_id","scene_run_id")){String id=(String)value.get(key);if(!UUID.fromString(id).toString().equals(id))throw changed();}
             if(!((String)value.get("camera_id")).matches("[A-Za-z0-9_-]{1,100}")||!((String)value.get("namespace")).matches("[a-f0-9]{32}"))throw changed();
             for(String key:List.of("source_fingerprint","recording_manifest_sha256","source_sha256"))if(!((String)value.get(key)).matches("[a-f0-9]{64}"))throw changed();
-            number(value,"source_bytes",1,16*1024*1024);long duration=number(value,"duration_us",2000000,20000000);
+            number(value,"source_bytes",1,format.maxBytes);long duration=number(value,"duration_us",2000000,format.maxDurationUs);
             number(value,"task_generation",1,Long.MAX_VALUE);number(value,"media_epoch",0,Long.MAX_VALUE);Math.addExact(number(value,"base_pts_us",Long.MIN_VALUE,Long.MAX_VALUE),duration);
         }catch(InputRejected error){throw error;}catch(RuntimeException error){throw changed();}
     }
