@@ -29,11 +29,15 @@ def configure(app_root,runtime,version,revision,run):
     credentials={'projected':json.loads(projection)} if projection else {'secret':{'secretName':'model-provider-credentials','defaultMode':0o440}}
     if projection:
         allowed={provider['credential_file'] for provider in json.loads(registry['data']['providers.json'])['providers'] if provider['activation_allowed'] is True}
-        projected=credentials['projected'];sources=[]
+        projected=credentials['projected'];sources=[];covered=set()
         for source_ref in projected['sources']:
             source_ref=deepcopy(source_ref)
             source_ref['secret']['items']=[entry for entry in source_ref['secret']['items'] if entry['path'] in allowed]
+            for entry in source_ref['secret']['items']:
+                if entry['path'] in covered:raise ValueError('Active provider credential projection is ambiguous')
+                covered.add(entry['path'])
             if source_ref['secret']['items']:sources.append(source_ref)
+        if covered!=allowed:raise ValueError('Active provider credential projection is incomplete')
         projected['sources']=sources
         if not sources:credentials={'emptyDir':{'sizeLimit':'1Mi'}}
         # This mount is derived from the operations-owned registry, including revocations.

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import sys
 import yaml
+import pytest
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'ci'))
@@ -39,6 +40,25 @@ def test_middle_modules_are_bounded_and_keep_operator_pause_and_private_bindings
     assert container['readinessProbe']['httpGet']['scheme']=='HTTPS'
     assert any(mount.get('subPath')=='plate' and mount['readOnly'] for mount in container['volumeMounts'])
     assert len(yaml.safe_load((tmp_path/'kustomization.yaml').read_text())['resources'])==6
+
+    # Adding a provider must update the authoritative credential mapping; old
+    # Pod mounts cannot mask an incomplete operations-owned registry at release.
+    registry=load('model-provider-registry');definition=json.loads(registry['data']['providers.json'])
+    definition['providers'].append({'credential_file':'next.token','activation_allowed':True})
+    registry['data']['providers.json']=json.dumps(definition);save('model-provider-registry',registry)
+    before=load('ai-gateway')
+    with pytest.raises(ValueError,match='incomplete'):configure(tmp_path,'runtime@sha256:next','0.24.0','revision','build')
+    assert load('ai-gateway')==before
+    projection=json.loads(registry['data']['credential-projection.json']);projection['sources'].append({'secret':{'name':'next','items':[{'key':'token','path':'next.token'}]}})
+    registry['data']['credential-projection.json']=json.dumps(projection);save('model-provider-registry',registry)
+    configure(tmp_path,'runtime@sha256:next','0.24.0','revision','build')
+    credential_volume=next(entry for entry in load('ai-gateway')['spec']['template']['spec']['volumes'] if entry['name']=='model-credentials')
+    assert {entry['path'] for source in credential_volume['projected']['sources'] for entry in source['secret']['items']}=={'approved.token','next.token'}
+    projection['sources'].append({'secret':{'name':'conflicting','items':[{'key':'token','path':'next.token'}]}})
+    registry['data']['credential-projection.json']=json.dumps(projection);save('model-provider-registry',registry)
+    before=load('ai-gateway')
+    with pytest.raises(ValueError,match='ambiguous'):configure(tmp_path,'runtime@sha256:next','0.24.0','revision','build')
+    assert load('ai-gateway')==before
 
 
 def test_published_plate_catalog_keeps_content_identity():
