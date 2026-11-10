@@ -14,8 +14,8 @@ for image in (core,runtime):
 root=Path(root)/'police-video-trajectory'
 names={'core-api','web-ui','ai-gateway','rtsp-worker','archive-worker','analysis-worker'}
 initial_flags={'core-api':{'VIDEO_RECORDING_REVIEW_ENABLED':'true'},'web-ui':{'WEB_RECORDING_REVIEW_ENABLED':'true','WEB_PROCESSING_TRACE_ENABLED':'true'},
-               'rtsp-worker':{'LIVE_RECORDING_ENABLED':'true','LIVE_RECORDING_CONTEXT_SECONDS':'10','CAPTURE_ANALYSIS_HANDOFF_ENABLED':'false'},
-               'archive-worker':{'LIVE_RECORDING_CONTEXT_SECONDS':'10'}}
+               'rtsp-worker':{'LIVE_RECORDING_ENABLED':'false','LIVE_RECORDING_CONTEXT_SECONDS':'0','PIPELINE_FEATURES_ENABLED':'true','CAPTURE_ANALYSIS_HANDOFF_ENABLED':'false'},
+               'archive-worker':{'LIVE_RECORDING_ENABLED':'false','LIVE_RECORDING_CONTEXT_SECONDS':'0','PIPELINE_FEATURES_ENABLED':'true'}}
 for name in sorted(names):
     path=root/'runtime'/(name+'.json')
     value=json.loads(path.read_text())
@@ -25,7 +25,12 @@ for name in sorted(names):
     environment=value['spec']['template']['spec']['containers'][0].setdefault('env',[])
     configured={entry['name'] for entry in environment}
     for key,setting in initial_flags.get(name,{}).items():
-        if key not in configured:environment.append({'name':key,'value':setting})
+        # Managed recording uses persisted opt-in state. Keep the static fallback
+        # closed across upgrades, without changing the operator-owned DB policy.
+        if name in {'rtsp-worker','archive-worker'} and key in {'LIVE_RECORDING_ENABLED','LIVE_RECORDING_CONTEXT_SECONDS','PIPELINE_FEATURES_ENABLED'}:
+            environment[:]=[entry for entry in environment if entry['name']!=key]
+            environment.append({'name':key,'value':setting})
+        elif key not in configured:environment.append({'name':key,'value':setting})
     annotations=value['spec']['template']['metadata'].setdefault('annotations',{})
     annotations.update({'video/version':version,'video/source-revision':revision,'video/actions-run':run})
     path.write_text(json.dumps(value,indent=2)+'\n')

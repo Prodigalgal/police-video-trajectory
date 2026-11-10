@@ -454,6 +454,8 @@ def create_app(config=None, transport=None):
     mount_recording_review(app,cfg,authenticated,origin_ok)
     from .processing_trace_api import mount_processing_trace
     mount_processing_trace(app,cfg,authenticated,origin_ok)
+    from .pipeline_features_api import mount_pipeline_features
+    mount_pipeline_features(app,cfg,authenticated,origin_ok)
 
     @app.get('/api/v1/features')
     async def features(request:Request):
@@ -470,6 +472,7 @@ def create_app(config=None, transport=None):
         if cfg.get('live_view'):result['live_view']=True
         if directory and cfg.get('recording_review'):result['recording_review']=True
         if directory and cfg.get('processing_trace'):result['processing_trace']=True
+        if directory:result['pipeline_features']=True
         return result
 
     if cfg.get('evaluation_root'):

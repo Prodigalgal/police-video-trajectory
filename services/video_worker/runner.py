@@ -259,7 +259,7 @@ async def maintain_evidence_ledger(store: LedgerEvidenceStore):
 async def run(role: str, settings: Settings):
     settings.validate(role)
     store = create_evidence_store(settings) if role not in {'modules','media','specialist','export'} else None
-    maintenance = delivery = recording_delivery = None
+    maintenance = delivery = recording_delivery = feature_sync = None
     if role == "ingest" and isinstance(store, LedgerEvidenceStore):
         audit = await asyncio.to_thread(store.audit_files)
         recovery = await asyncio.to_thread(store.recover)
@@ -272,7 +272,11 @@ async def run(role: str, settings: Settings):
         if role == "ingest" and isinstance(store, LedgerEvidenceStore):
             maintenance = asyncio.create_task(maintain_evidence_ledger(store))
         if role == "ingest":
-            if settings.live_recording_enabled:
+            if settings.pipeline_features_enabled:
+                from .recording_control import RecordingControl,synchronize_recording
+                control=RecordingControl();settings=replace(settings,recording_control=control)
+                feature_sync=asyncio.create_task(synchronize_recording(control,core))
+            if settings.live_recording_enabled or settings.pipeline_features_enabled:
                 from .live_recording_delivery import publish_recordings
                 recording_delivery=asyncio.create_task(publish_recordings(settings,core))
             spool = None
@@ -293,6 +297,7 @@ async def run(role: str, settings: Settings):
                 # A failed dispatcher must not leave apparently healthy decoders.
                 supervised={sources,delivery}
                 if recording_delivery is not None:supervised.add(recording_delivery)
+                if feature_sync is not None:supervised.add(feature_sync)
                 done, _ = await asyncio.wait(supervised, return_when=asyncio.FIRST_COMPLETED)
                 try:
                     for item in done:
@@ -328,6 +333,9 @@ async def run(role: str, settings: Settings):
         if recording_delivery:
             recording_delivery.cancel()
             await asyncio.gather(recording_delivery,return_exceptions=True)
+        if feature_sync:
+            feature_sync.cancel()
+            await asyncio.gather(feature_sync,return_exceptions=True)
         if core:
             await core.close()
         if gateway:

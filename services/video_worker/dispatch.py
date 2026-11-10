@@ -55,7 +55,7 @@ async def capture_source(settings, spool, task, worker, core=None):
         if checkpoint is not None:checkpoint.captured(frame_id)
 
     import hashlib
-    if getattr(settings,'live_recording_enabled',False):options['recording_context']={'task_id':task['taskId'],'task_generation':task['generation'],'worker_id':worker,'source_ref_sha256':hashlib.sha256(task['sourceRef'].encode()).hexdigest()}
+    if getattr(settings,'live_recording_enabled',False) or getattr(settings,'pipeline_features_enabled',False):options['recording_context']={'task_id':task['taskId'],'task_generation':task['generation'],'worker_id':worker,'source_ref_sha256':hashlib.sha256(task['sourceRef'].encode()).hexdigest()}
     reader = SceneReader(settings, task['sourceRef'], task['sourceType'], selected_sink=selected_sink,**options)
     reader.thread.start()
     try:
@@ -112,7 +112,7 @@ async def prepare_selected(settings, spool):
                         if getattr(settings,'scene_motion_context','off')=='observe':
                             options={'motion_context':record.get('motion_context'),'motion_context_issue':record.get('motion_context_issue')}
                         plan = await asyncio.to_thread(planner.plan, frame_id, record['payload'], record['metadata'],**options)
-                        if getattr(settings,'live_recording_enabled',False) and record['metadata'].get('recording') and plan.get('modules'):
+                        if (getattr(settings,'live_recording_enabled',False) or getattr(settings,'pipeline_features_enabled',False)) and record['metadata'].get('recording') and plan.get('modules'):
                             from .live_recording_delivery import pin_frame
                             await asyncio.to_thread(pin_frame,settings,record)
                         await asyncio.to_thread(spool.attach, frame_id, record['sha256'], 'plan', plan)

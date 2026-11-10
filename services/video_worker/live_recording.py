@@ -30,7 +30,7 @@ class NativeRecorder:
         if not isinstance(context.get('worker_id'),str) or type(context.get('task_generation')) is not int or context['task_generation']<1:raise MediaError('recording_invalid_context')
         self.settings,self.stream,self.context,self.count=settings,stream,dict(context),count
         self.base=Fraction(stream.time_base);self.namespace=namespace_for(context['worker_id'])
-        self.context_seconds=getattr(settings,'live_recording_context_seconds',10)
+        self.context_seconds=getattr(settings,'live_recording_context_seconds',0)
         self.windows=RecordingWindows(self.context_seconds,settings.live_recording_segment_seconds)
         self.segment_bytes=SEGMENT_BYTES if self.context_seconds else LEGACY_SEGMENT_BYTES
         self.store=LiveStore(settings.live_recording_dir,self.namespace,writer=True,limit=settings.live_recording_bytes,retention=settings.live_recording_retention_seconds,segment_bytes=self.segment_bytes)
@@ -233,6 +233,13 @@ class PacketSegment:
 
 @contextmanager
 def recording_context(reader,container):
+    control=getattr(reader.settings,'recording_control',None)
+    if control is not None:
+        from .recording_control import RecordingSlot
+        slot=RecordingSlot(reader,container,control)
+        try:yield slot
+        finally:slot.close()
+        return
     if not getattr(reader.settings,'live_recording_enabled',False):yield None;return
     recorder=None
     try:

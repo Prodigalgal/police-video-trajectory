@@ -1,3 +1,3 @@
--- Application version: 0.28.0. Record browsing does not create a media clock.
+-- Application version: 0.29.0. Record browsing does not create a media clock.
 CREATE INDEX IF NOT EXISTS frame_nearby_records_idx
     ON frames(task_id,lease_generation,received_at,frame_id) WHERE analysis_state='completed';
