@@ -63,7 +63,7 @@ def create_app(config=None, transport=None):
         "specialist_jobs":os.getenv("WEB_SPECIALIST_JOBS","false")=="true",
         "investigation":os.getenv("WEB_INVESTIGATION_ENABLED","false")=="true",
         "ingestion_jobs":os.getenv("WEB_INGEST_JOBS_ENABLED","false")=="true",
-        "exports":os.getenv("WEB_EXPORTS_ENABLED","false")=="true",
+        "exports":os.getenv("WEB_EXPORTS_INSTALLED",os.getenv("WEB_EXPORTS_ENABLED","false"))=="true",
         "appearance":os.getenv("WEB_APPEARANCE_ENABLED","false")=="true",
         "live_view":os.getenv("WEB_LIVE_VIEW_ENABLED","false")=="true",
         "recording_review":os.getenv("WEB_RECORDING_REVIEW_ENABLED","false")=="true",

@@ -1,7 +1,6 @@
 package cn.trial.videosearch.exports;
 
 import cn.trial.videosearch.evidence.InputRejected;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -20,15 +19,23 @@ public class ExportArtifactLifecycle {
         AND NOT EXISTS(SELECT 1 FROM evidence_export_transfers t WHERE t.export_id=e.export_id
           AND t.state='streaming' AND t.started_at>clock_timestamp()-interval '20 minutes')
         """;
-    private final JdbcTemplate db;private final TransactionTemplate tx;private final boolean enabled;
-    public ExportArtifactLifecycle(JdbcTemplate db,PlatformTransactionManager manager,@Value("${VIDEO_EXPORTS_ENABLED:false}")boolean enabled){this.db=db;this.enabled=enabled;tx=new TransactionTemplate(manager);tx.setTimeout(10);}
-    private void requireEnabled(){if(!enabled)throw new InputRejected(404,"exports_disabled");}
+    private final JdbcTemplate db;private final TransactionTemplate tx;private final ExportRuntime runtime;
+    public ExportArtifactLifecycle(JdbcTemplate db,PlatformTransactionManager manager,ExportRuntime runtime){this.db=db;this.runtime=runtime;tx=new TransactionTemplate(manager);tx.setTimeout(10);}
+    private void requireEnabled(){runtime.requireInstalled();}
     private void lock(){db.execute("SELECT pg_advisory_xact_lock(918273695)");}
     private static void worker(String value){if(value==null||!value.matches("[A-Za-z0-9_.-]{1,100}"))throw new IllegalArgumentException("Invalid reclaim owner");}
     public void register(UUID id,long generation,String worker,String sha){db.update("INSERT INTO evidence_export_attempts(export_id,generation,worker_id,manifest_sha256) VALUES(?,?,?,?)",id,generation,worker,sha);}
     public Map<String,Object> claim(Claim body){
         requireEnabled();if(body==null)throw new IllegalArgumentException();worker(body.workerId());
-        return tx.execute(status->{lock();var rows=db.queryForList("SELECT a.export_id,a.generation,a.worker_id,a.manifest_sha256 FROM evidence_export_attempts a JOIN evidence_exports e USING(export_id) WHERE "+ELIGIBLE+" AND (a.reclaim_expires_at IS NULL OR a.reclaim_expires_at<=clock_timestamp()) ORDER BY a.created_at,a.export_id,a.generation FOR UPDATE OF a SKIP LOCKED LIMIT 1");
+        return tx.execute(status->{lock();
+            db.update("""
+                UPDATE evidence_exports e SET state='cancelled',revision=revision+1,lease_generation=lease_generation+1,
+                  lease_owner=NULL,lease_expires_at=NULL,last_error_code='export_expired',updated_at=clock_timestamp()
+                WHERE state='completed' AND coalesce(artifact_expires_at,updated_at+interval '24 hours')<=clock_timestamp()
+                  AND NOT EXISTS(SELECT 1 FROM evidence_export_transfers t WHERE t.export_id=e.export_id
+                    AND t.state='streaming' AND t.started_at>clock_timestamp()-interval '20 minutes')
+                """);
+            var rows=db.queryForList("SELECT a.export_id,a.generation,a.worker_id,a.manifest_sha256 FROM evidence_export_attempts a JOIN evidence_exports e USING(export_id) WHERE "+ELIGIBLE+" AND (a.reclaim_expires_at IS NULL OR a.reclaim_expires_at<=clock_timestamp()) ORDER BY a.created_at,a.export_id,a.generation FOR UPDATE OF a SKIP LOCKED LIMIT 1");
             if(rows.isEmpty())return Map.of("reclaim_available",false);var value=rows.getFirst();UUID token=UUID.randomUUID();
             db.update("UPDATE evidence_export_attempts SET reclaim_token=?,reclaim_owner=?,reclaim_expires_at=clock_timestamp()+interval '60 seconds' WHERE export_id=? AND generation=?",token,body.workerId(),value.get("export_id"),value.get("generation"));
             return Map.of("reclaim",Map.of("export_id",value.get("export_id").toString(),"generation",value.get("generation"),"worker_id",value.get("worker_id"),"manifest_sha256",value.get("manifest_sha256"),"token",token.toString()));});

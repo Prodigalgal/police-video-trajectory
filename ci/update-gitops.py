@@ -5,6 +5,7 @@ import re
 import sys
 from usability_gitops import configure
 from midstream_gitops import configure as configure_midstream
+from export_gitops import configure as configure_exports
 
 root,core,runtime,version,revision,run = sys.argv[1:]
 if not re.fullmatch(r'\d+\.\d+\.\d+',version) or not re.fullmatch(r'[a-f0-9]{40}',revision):
@@ -40,5 +41,6 @@ value['spec']['template']['spec']['containers'][0]['imagePullPolicy']='IfNotPres
 path.write_text(json.dumps(value,indent=2)+'\n')
 configure(root,runtime,version,revision,run)
 configure_midstream(root,runtime,version,revision,run)
+configure_exports(root,runtime,version,revision,run)
 (root/'release.json').write_text(json.dumps({'version':version,'source_revision':revision,'actions_run':run,
                                           'core_image':core,'runtime_image':runtime},indent=2)+'\n')

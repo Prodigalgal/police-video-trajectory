@@ -69,6 +69,7 @@ tests/*
 !tests/test_usability_gitops.py
 !tests/test_managed_models.py
 !tests/test_provider_catalog.py
+!tests/test_optional_exports.py
 !tests/test_midstream_gitops.py
 !tests/test_inference_receipt.py
 !tests/test_processing_trace_api.py

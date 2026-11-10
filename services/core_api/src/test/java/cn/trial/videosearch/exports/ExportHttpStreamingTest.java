@@ -20,7 +20,7 @@ class ExportHttpStreamingTest {
         UUID id=UUID.randomUUID();var asset=Map.<String,Object>of("asset_key","image-key");
         when(jobs.workerSnapshot(id,"worker",1)).thenReturn(Map.of("payload","{\"assets\":[{\"asset_key\":\"image-key\"}]}"));
         byte[] bytes={1,2,3,4,5};when(assets.read(asset)).thenReturn(new ExportAssets.Content(null,bytes,bytes.length,"a".repeat(64),"image/jpeg"));
-        var web=WebTestClient.bindToController(new ExportWorkerController(jobs,assets,lifecycle,"token")).build();
+        var web=WebTestClient.bindToController(new ExportWorkerController(jobs,assets,lifecycle,mock(ExportRuntime.class),"token")).build();
         String path="/internal/v2/exports/"+id+"/assets/image-key?worker=worker&generation=1";
         web.get().uri(path).header("Authorization","Bearer token").exchange().expectStatus().isOk().expectHeader().contentType(MediaType.IMAGE_JPEG).expectBody(byte[].class).isEqualTo(bytes);
         web.get().uri(path).exchange().expectStatus().isUnauthorized().expectHeader().contentType(MediaType.APPLICATION_JSON).expectBody().jsonPath("$.code").isEqualTo("unauthorized");

@@ -72,6 +72,8 @@ def verify(root=ROOT, *, web_dist=False, jar=None):
     found['migration_030']=re.search(r'Application version: ([0-9.]+)\.',optional_features).group(1)
     local_models=(root/'services/core_api/src/main/resources/db/031-managed-model-catalogs.sql').read_text()
     found['migration_031']=re.search(r'Application version: ([0-9.]+)\.',local_models).group(1)
+    optional_exports=(root/'services/core_api/src/main/resources/db/032-optional-video-export.sql').read_text()
+    found['migration_032']=re.search(r'Application version: ([0-9.]+)\.',optional_exports).group(1)
     if web_dist:
         found['web_artifact'] = json.loads((root / 'web/dist/version.json').read_text())['version']
     if jar:

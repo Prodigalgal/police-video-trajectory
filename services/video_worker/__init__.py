@@ -1,3 +1,3 @@
 """Video ingestion and durable analysis workers for the trial backend."""
 
-__version__ = "0.34.0"
+__version__ = "0.35.0"

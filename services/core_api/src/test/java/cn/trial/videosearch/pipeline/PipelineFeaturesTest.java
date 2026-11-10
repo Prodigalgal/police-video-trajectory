@@ -18,11 +18,21 @@ class PipelineFeaturesTest {
         assertEquals(false,PipelineFeatureRegistry.definition("frame_recording").get("default_enabled"));
     }
     @Test void staleWritesCannotCreateAnAuditOrCommandReceipt(){
-        var db=mock(JdbcTemplate.class);var features=new PipelineFeatures(db);
+        var db=mock(JdbcTemplate.class);var features=new PipelineFeatures(db,false);
         var command=new PipelineFeatures.Update(UUID.randomUUID(),1L,true,"short_segment_v1",Map.of());
         var rejected=assertThrows(AdminService.Rejected.class,()->features.update("frame_recording",command,"admin"));
         assertEquals(409,rejected.status);assertEquals("pipeline_feature_revision_conflict",rejected.code);
         verify(db,never()).update(startsWith("INSERT"),any(Object[].class));
+    }
+    @Test void exportFeatureDefaultsOffAndCannotBeEnabledBeforeInstallation(){
+        var db=mock(JdbcTemplate.class);var features=new PipelineFeatures(db,false);
+        PipelineFeatureRegistry.validate("evidence_export","bound_video_package_v1",Map.of());
+        assertEquals(false,PipelineFeatureRegistry.definition("evidence_export").get("default_enabled"));
+        assertThrows(IllegalArgumentException.class,()->PipelineFeatureRegistry.validate("evidence_export","bound_video_package_v1",Map.of("seconds",5)));
+        assertThrows(AdminService.Rejected.class,()->PipelineFeatureRegistry.validate("evidence_export","short_segment_v1",Map.of()));
+        var command=new PipelineFeatures.Update(UUID.randomUUID(),1L,true,"bound_video_package_v1",Map.of());
+        assertEquals("pipeline_feature_not_installed",assertThrows(AdminService.Rejected.class,()->features.update("evidence_export",command,"admin")).code);
+        verifyNoInteractions(db);
     }
     @Test void workerAuthenticationFailsBeforeReadingTheConfiguration(){
         var features=mock(PipelineFeatures.class);var controller=new PipelineFeatureWorkerController(features,"contract-only");

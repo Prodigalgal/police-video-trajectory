@@ -5,6 +5,8 @@ import json
 import os
 import re
 import time
+import tempfile
+from pathlib import Path
 from urllib.parse import urlencode
 import uuid
 import zipfile
@@ -15,8 +17,11 @@ from .client import ServiceError
 from .events import log
 from .export_store import ExportStore,ExportError,MAX_ARTIFACT
 from .analysis_consumer import wait_for_poll
+from . import __version__
 
 RETRYABLE={408,429,500,502,503,504}
+CONTRACTS=['evidence-export-v1','evidence-native-128-v1']
+HEALTH_FILE=Path(tempfile.gettempdir())/'police-video-export-ready'
 
 
 async def local_io(action,*args):
@@ -36,7 +41,7 @@ def validate_plan(job):
     for asset in assets:
         identity=str(uuid.UUID(asset['identity']));kind=asset['kind'];key=kind+'-'+identity
         expected='frames/'+identity+'.jpg' if kind=='image' else 'media/'+kind+'/'+identity+'.mp4'
-        limit={'image':8,'native':16,'normalized':64}.get(kind,0)*1024**2
+        limit={'image':8,'native':128,'normalized':64}.get(kind,0)*1024**2
         if (asset.get('filename')!=expected or asset.get('asset_key')!=key or key in keys or expected in names
             or type(asset.get('bytes')) is not int or not 0<asset['bytes']<=limit or not re.fullmatch('[a-f0-9]{64}',asset.get('sha256',''))):raise ExportError('export_artifact_changed')
         keys.add(key);names.add(expected);total+=asset['bytes']
@@ -139,15 +144,42 @@ async def heartbeat(core,job,worker,deadline):
             else:deadline[0]=started+110;break
 
 
+async def consumer_presence(settings,core,worker,stop):
+    while not stop.is_set():
+        try:
+            response=await asyncio.wait_for(core.post('/internal/v2/exports/heartbeat',{'workerId':worker,'contracts':CONTRACTS,'quotaBytes':settings.export_bytes,'version':__version__}),10)
+            if response.get('accepted') is not True:raise ValueError('export heartbeat differs')
+            HEALTH_FILE.write_text(str(time.monotonic()),encoding='ascii')
+        except (ServiceError,TimeoutError,ValueError,OSError) as error:
+            log(json.dumps({'event':'evidence_export_consumer_unavailable','http_status':getattr(error,'status',None),'reason':type(error).__name__}))
+        try:await asyncio.wait_for(stop.wait(),15)
+        except TimeoutError:pass
+
+
 async def export_slot(settings,core,slot,stop):
+    worker=f'{settings.worker_id}-export-{slot}'
+    presence=asyncio.create_task(consumer_presence(settings,core,worker,stop))
+    try:await export_loop(settings,core,slot,stop)
+    finally:
+        presence.cancel();await asyncio.gather(presence,return_exceptions=True)
+        try:HEALTH_FILE.unlink(missing_ok=True)
+        except OSError:log(json.dumps({'event':'evidence_export_readiness_cleanup_deferred'}))
+
+
+async def export_loop(settings,core,slot,stop):
     worker=f'{settings.worker_id}-export-{slot}';store=ExportStore(settings.export_dir,settings.export_bytes)
     while not stop.is_set():
         job=None;work=renew=shutdown=None;completed=False;code='export_interrupted'
         try:
             await asyncio.wait_for(reclaim_one(core,store,worker),45)
             started=asyncio.get_running_loop().time()
-            reply=await core.post('/internal/v2/exports/claim',{'workerId':worker,'contracts':['evidence-export-v1']});job=reply.get('job')
-            if not job:await wait_for_poll(stop);continue
+            reply=await core.post('/internal/v2/exports/claim',{'workerId':worker,'contracts':CONTRACTS});job=reply.get('job')
+            if not job:
+                if reply.get('module_enabled') is False:
+                    try:await asyncio.wait_for(stop.wait(),10)
+                    except TimeoutError:pass
+                else:await wait_for_poll(stop)
+                continue
             deadline=[started+110]
             work=asyncio.create_task(asyncio.wait_for(build(settings,core,job,worker,store),settings.export_job_timeout_seconds))
             renew=asyncio.create_task(heartbeat(core,job,worker,deadline));shutdown=asyncio.create_task(stop.wait())

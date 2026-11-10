@@ -61,6 +61,39 @@ public class ExportAssets {
         if("native".equals(asset.get("kind"))){var reference=recordings.reference(frame,true).orElseThrow(()->new InputRejected(409,"export_source_changed"));if(!reference.segmentId().toString().equals(asset.get("identity"))||!reference.recording().sha256().equals(asset.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");}
         else if("normalized".equals(asset.get("kind"))){UUID id=UUID.fromString((String)asset.get("reference_id"));if(!Objects.equals(clips.read(id).get("manifest_sha256"),asset.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");var manifest=JSON.readValue(db.queryForObject("SELECT manifest::text FROM recorded_media_clips WHERE clip_id=?",String.class,id),Map.class);verifyNormalizedBinding(frame,id,object(manifest));}
     }
+    private Map<String,Object> databaseFacts(Map<String,Object> asset,UUID frame){
+        List<Map<String,Object>> rows;
+        if("native".equals(asset.get("kind")))rows=db.queryForList("""
+            SELECT jsonb_build_object('frame',to_jsonb(f),'link',to_jsonb(l),'segment',to_jsonb(s),
+              'identity',l.segment_id,'manifest_sha256',s.manifest_sha256,'bound',l.segment_id IS NOT NULL)::text AS facts
+            FROM frames f LEFT JOIN frame_recording_links l USING(frame_id)
+            LEFT JOIN stream_recording_segments s ON s.segment_id=l.segment_id WHERE f.frame_id=?
+            """,frame);
+        else if("normalized".equals(asset.get("kind")))rows=db.queryForList("""
+            SELECT jsonb_build_object('frame',to_jsonb(f),'clip',to_jsonb(r),'binding',to_jsonb(m),
+              'native_link',to_jsonb(l),'native_segment',to_jsonb(s),'archive',p.source_snapshot,
+              'identity',r.clip_id,'manifest_sha256',r.manifest_sha256,
+              'bound',coalesce(m.job_id IS NOT NULL OR (r.source_id=t.source_id
+                AND r.manifest->'source'->>'sha256'=p.source_snapshot->'file'->>'sha256'
+                AND r.manifest->'source'->>'bytes'=p.source_snapshot->'file'->>'bytes'
+                AND f.media_offset_ms*1000 BETWEEN (r.manifest->>'actual_start_us')::bigint AND (r.manifest->>'actual_end_us')::bigint),false))::text AS facts
+            FROM frames f LEFT JOIN recorded_media_clips r ON r.clip_id=?
+            LEFT JOIN media_job_frames m ON m.frame_id=f.frame_id AND m.job_id=r.clip_id
+            LEFT JOIN frame_recording_links l ON l.frame_id=f.frame_id
+            LEFT JOIN stream_recording_segments s ON s.segment_id=l.segment_id
+            LEFT JOIN processing_tasks t ON t.task_id=f.task_id LEFT JOIN ingestion_task_specs p ON p.task_id=f.task_id
+            WHERE f.frame_id=?
+            """,UUID.fromString((String)asset.get("identity")),frame);
+        else throw new InputRejected(409,"export_source_changed");
+        if(rows.size()!=1)throw new InputRejected(409,"export_source_changed");var facts=ExportPlans.decode((String)rows.getFirst().get("facts"));
+        if(!Boolean.TRUE.equals(facts.get("bound"))||!asset.get("identity").equals(facts.get("identity"))||!asset.get("manifest_sha256").equals(facts.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");
+        return facts;
+    }
+    public String databaseSignature(Map<String,Object> asset,UUID frame){return CanonicalJson.encode(databaseFacts(asset,frame),1024*1024).sha256();}
+    public void verifyDatabaseBinding(Map<String,Object> asset,Map<String,Object> binding){
+        String signature=databaseSignature(asset,UUID.fromString((String)binding.get("frame_id")));
+        if(binding.containsKey("database_sha256")&&!signature.equals(binding.get("database_sha256")))throw new InputRejected(409,"export_source_changed");
+    }
     public Content read(Map<String,Object> asset)throws Exception{
         UUID frame=UUID.fromString((String)asset.get("frame_id"));String kind=(String)asset.get("kind");Content value;
         if("image".equals(kind)){

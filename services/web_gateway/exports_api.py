@@ -20,7 +20,7 @@ class CreateExport(BaseModel):
     request_id:UUID
     collection_id:UUID
     collection_revision:int=Field(ge=1,strict=True)
-    part:int=Field(ge=1,le=50,strict=True)
+    part:int=Field(ge=1,le=100,strict=True)
     native_video:bool=Field(default=True,strict=True)
     normalized_video:bool=Field(default=True,strict=True)
 
@@ -44,6 +44,10 @@ def valid_zip_headers(status,headers):
 
 def mount_exports(app,cfg,authenticated,origin_ok):
     proxy=BusinessProxy(app,cfg,authenticated,origin_ok,feature='exports')
+    status_proxy=BusinessProxy(app,cfg,authenticated,origin_ok,feature='account_directory')
+
+    @app.get('/api/v1/exports/status')
+    async def status(request:Request):return await status_proxy.call(request,'GET','/internal/exports/status')
 
     @app.get('/api/v1/exports/info')
     async def info(request:Request,collection_id:UUID,revision:int=Query(ge=1)):
@@ -82,7 +86,7 @@ def mount_exports(app,cfg,authenticated,origin_ok):
             upstream=await app.state.http.send(query,stream=True)
             if upstream.status_code not in {200,206}:
                 status=upstream.status_code;await upstream.aclose()
-                raise HTTPException(status if status in {400,401,403,404,409,416,422,429} else 503,'证据包暂不可下载，请刷新任务状态')
+                raise HTTPException(status if status in {400,401,403,404,409,410,416,422,429} else 503,'证据包暂不可下载，请刷新任务状态')
             if not valid_zip_headers(upstream.status_code,upstream.headers):raise ValueError('Invalid export headers')
             transfer=str(UUID(upstream.headers.get('x-transfer-id','')))
             response_headers={key:upstream.headers[key] for key in ('content-length','content-range','accept-ranges','x-content-sha256') if key in upstream.headers}
