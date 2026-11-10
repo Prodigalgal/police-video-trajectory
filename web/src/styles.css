@@ -139,3 +139,5 @@ body:has([role="dialog"][aria-modal="true"])>.page-notification-layer,body:has([
 .video-dialog{max-height:calc(100dvh - 40px);overflow:auto}
 @media(max-width:600px){.clip-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.clip-actions button{width:100%}.clip-timeline{flex-wrap:wrap;gap:4px}.clip-timeline label{flex-basis:100%}.clip-options{justify-content:space-between}.clip-options label{flex-wrap:wrap}}
 .model-local-field{display:grid;gap:8px;margin:16px 0;font-size:13px;color:var(--muted,#52647b)}.model-local-field select{box-sizing:border-box;width:100%;min-width:0;min-height:44px;border:1px solid #d6e0ec;border-radius:8px;background:#fff;padding:10px;color:#334e6b;font:inherit}
+
+.processing-trace .context-heading>.text-button{min-height:44px}.processing-trace .trace-resource-action{min-width:9em;white-space:nowrap}

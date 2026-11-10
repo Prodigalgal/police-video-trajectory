@@ -15,14 +15,15 @@ class ProcessingTraceTest {
     @Test void frameAccessChecksCameraScopeBeforeReadingFiles(){
         var db=mock(JdbcTemplate.class);var scope=mock(SearchOrchestrator.class);var files=mock(EvidenceFiles.class);UUID frame=UUID.randomUUID();
         when(db.queryForList(contains("WITH anchor"),eq(frame),eq(frame))).thenReturn(List.of(Map.of("camera_id","foreign")));
-        var trace=new ProcessingTrace(db,scope,files);
-        assertEquals(404,assertThrows(InputRejected.class,()->trace.frame(frame)).status);verifyNoInteractions(files);
+        var resources=mock(ProcessingTraceResources.class);var trace=new ProcessingTrace(db,scope,files,resources);
+        assertEquals(404,assertThrows(InputRejected.class,()->trace.frame(frame,true)).status);verifyNoInteractions(files,resources);
     }
     @Test void oldObservationVersionCannotReadANewerFrameTrace(){
         var db=mock(JdbcTemplate.class);var scope=mock(SearchOrchestrator.class);var files=mock(EvidenceFiles.class);UUID observation=UUID.randomUUID();
         when(db.queryForList(startsWith("SELECT frame_id,camera_id,record_version"),eq(observation))).thenReturn(List.of(Map.of("frame_id",UUID.randomUUID(),"camera_id","camera-1","record_version",2L)));
         when(scope.mayReadCamera("camera-1")).thenReturn(true);
-        assertEquals(409,assertThrows(InputRejected.class,()->new ProcessingTrace(db,scope,files).observation(observation,1)).status);verifyNoInteractions(files);
+        var resources=mock(ProcessingTraceResources.class);
+        assertEquals(409,assertThrows(InputRejected.class,()->new ProcessingTrace(db,scope,files,resources).observation(observation,1,true)).status);verifyNoInteractions(files,resources);
     }
     @Test void adminImageRouteAuthenticatesBeforeAccessingSource(){
         var traces=mock(ProcessingTrace.class);var access=mock(ActorAccess.class);
@@ -36,10 +37,15 @@ class ProcessingTraceTest {
         when(db.queryForList(contains("WITH anchor"),eq(frame),eq(frame))).thenReturn(List.of(row));when(scope.mayReadCamera("camera-1")).thenReturn(true);
         when(files.read(frame,"reference")).thenReturn(new EvidenceFiles.FrameFile(new byte[]{1},1,1,"b".repeat(64)));
         when(db.queryForMap(startsWith("SELECT count(*) AS total"),eq(frame))).thenReturn(Map.of("total",0L,"submitted",0L));
-        var result=new ProcessingTrace(db,scope,files).frame(frame);
+        var resources=mock(ProcessingTraceResources.class);var traces=new ProcessingTrace(db,scope,files,resources);var result=traces.frame(frame);
         var manifest=cn.trial.videosearch.ingest.InferenceReceipts.parse((String)result.get("replay_manifest_json"));
         assertEquals(false,manifest.get("image_available"));assertEquals(false,manifest.get("request_available"));
         assertEquals(Map.of("profile","small-detector"),manifest.get("preprocess"));
         assertEquals("not_evaluated",((Map<?,?>)result.get("quality")).get("recognition_accuracy"));
+        verifyNoInteractions(resources);
+        when(resources.verify(frame)).thenReturn(List.of(Map.of("name","elasticsearch_document","state","missing"),Map.of("name","recording_file","state","unavailable")));
+        var checked=traces.frame(frame,true);
+        assertTrue(((List<?>)checked.get("checks")).contains(Map.of("name","elasticsearch_document","state","missing")));
+        assertEquals(result.get("replay_manifest_sha256"),checked.get("replay_manifest_sha256"));
     }
 }

@@ -13,13 +13,14 @@ import java.util.*;
 @Service
 public class ProcessingTrace {
     private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(ProcessingTrace.class);
-    private final JdbcTemplate db;private final SearchOrchestrator scope;private final EvidenceFiles files;
-    public ProcessingTrace(JdbcTemplate db,SearchOrchestrator scope,EvidenceFiles files){this.db=db;this.scope=scope;this.files=files;}
-    public Map<String,Object> observation(UUID observation,long version){
+    private final JdbcTemplate db;private final SearchOrchestrator scope;private final EvidenceFiles files;private final ProcessingTraceResources resources;
+    public ProcessingTrace(JdbcTemplate db,SearchOrchestrator scope,EvidenceFiles files,ProcessingTraceResources resources){this.db=db;this.scope=scope;this.files=files;this.resources=resources;}
+    public Map<String,Object> observation(UUID observation,long version){return observation(observation,version,false);}
+    public Map<String,Object> observation(UUID observation,long version,boolean verifyAssets){
         var rows=db.queryForList("SELECT frame_id,camera_id,record_version FROM observations WHERE observation_id=? AND NOT deleted",observation);
         if(rows.size()!=1||!scope.mayReadCamera((String)rows.getFirst().get("camera_id")))throw new InputRejected(404,"trace_unavailable");
         if(((Number)rows.getFirst().get("record_version")).longValue()!=version)throw new InputRejected(409,"trace_source_changed");
-        var result=frame((UUID)rows.getFirst().get("frame_id"));
+        var result=frame((UUID)rows.getFirst().get("frame_id"),verifyAssets);
         var current=db.queryForList("SELECT record_version,deleted FROM observations WHERE observation_id=?",observation);
         if(current.size()!=1||Boolean.TRUE.equals(current.getFirst().get("deleted"))||((Number)current.getFirst().get("record_version")).longValue()!=version)throw new InputRejected(409,"trace_source_changed");
         result.put("observation_id",observation.toString());result.put("record_version",version);return result;
@@ -46,7 +47,8 @@ public class ProcessingTrace {
         var current=source(frame);for(String key:List.of("camera_id","evidence_ref","payload_sha256"))if(!Objects.equals(row.get(key),current.get(key)))throw new InputRejected(409,"trace_source_changed");
         return image;
     }
-    public Map<String,Object> frame(UUID frame){
+    public Map<String,Object> frame(UUID frame){return frame(frame,false);}
+    public Map<String,Object> frame(UUID frame,boolean verifyAssets){
         var row=source(frame);var checks=new ArrayList<Map<String,Object>>();var stages=new ArrayList<Map<String,Object>>();
         Map<String,Object> plan=row.get("plan")==null?Map.of():InferenceReceipts.parse((String)row.get("plan"));
         var stored=receipt(frame);var sealed=stored.value();String expected=(String)row.get("payload_sha256");
@@ -85,6 +87,11 @@ public class ProcessingTrace {
         checks.add(check("recording_file","not_checked"));
         var reviews=db.queryForList("SELECT r.review_state,r.review_scope,r.revision FROM specialist_plate_reviews r JOIN specialist_analysis_jobs j ON j.job_id=r.job_id WHERE j.frame_id=? ORDER BY r.job_id LIMIT 32",frame);
         stages.add(stage("plate_review",reviews.isEmpty()?"not_started":"recorded",null,Map.of("reviews",reviews)));
+        if(verifyAssets){
+            var verified=new HashMap<String,Map<String,Object>>();
+            for(var check:resources.verify(frame))verified.put((String)check.get("name"),check);
+            checks.replaceAll(check->verified.getOrDefault(check.get("name"),check));
+        }
         var now=source(frame);
         for(String key:List.of("payload_sha256","plan","camera_id","evidence_ref","scene_run_id","media_epoch","relative_media_ms","job_updated"))if(!Objects.equals(row.get(key),now.get(key)))throw new InputRejected(409,"trace_source_changed");
         var manifest=new LinkedHashMap<String,Object>();manifest.put("schema_version","processing-replay-v1");manifest.put("frame_id",frame.toString());manifest.put("camera_id",row.get("camera_id"));manifest.put("image_sha256",expected);
@@ -113,6 +120,10 @@ public class ProcessingTrace {
     public void audit(UUID frame,String actor,String kind){
         if(!Set.of("detail","image").contains(kind))throw new IllegalArgumentException("无效的追溯访问类型");
         db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,?,?,?)",actor,"processing_trace."+kind,"read",frame);
+    }
+    public void auditVerification(Map<String,Object> result,String actor){
+        var encoded=CanonicalJson.encode(Map.of("checked_at",result.get("checked_at"),"checks",result.get("checks")),32768);
+        db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,'processing_trace.verify',?,?)",actor,encoded.payload(),UUID.fromString((String)result.get("frame_id")));
     }
     private static Object safe(Object value,int depth){
         if(depth>16)throw new IllegalArgumentException("处理记录层级过深");

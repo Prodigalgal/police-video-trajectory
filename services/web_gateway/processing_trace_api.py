@@ -12,12 +12,14 @@ def mount_processing_trace(app, cfg, authenticated, origin_ok):
     internal = '/internal/processing-traces'
 
     @app.get('/api/v1/observations/{observation}/trace')
-    async def observation_trace(observation: UUID, request: Request, observation_version: int = Query(ge=1)):
-        return await proxy.call(request, 'GET', internal+'/observations/'+str(observation), params={'observationVersion': observation_version})
+    async def observation_trace(observation: UUID, request: Request, observation_version: int = Query(ge=1), verify_assets: bool = False):
+        params={'observationVersion':observation_version}
+        if verify_assets:params['verifyAssets']='true'
+        return await proxy.call(request, 'GET', internal+'/observations/'+str(observation), params=params)
 
     @app.get('/api/admin/processing-traces/frames/{frame}')
-    async def frame_trace(frame: UUID, request: Request):
-        return await proxy.call(request, 'GET', internal+'/frames/'+str(frame), admin=True)
+    async def frame_trace(frame: UUID, request: Request, verify_assets: bool = False):
+        return await proxy.call(request, 'GET', internal+'/frames/'+str(frame), admin=True, params={'verifyAssets':'true'} if verify_assets else None)
 
     @app.get('/api/admin/processing-traces/frames/{frame}/image')
     async def source_image(frame: UUID, request: Request, sha: str = Query(pattern=r'^[a-f0-9]{64}$')):
