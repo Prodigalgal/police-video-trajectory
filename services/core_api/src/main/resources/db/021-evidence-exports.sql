@@ -1,4 +1,4 @@
--- Application version: 0.32.0. Export artifacts and server transfer journals; no inference work.
+-- Application version: 0.33.0. Export artifacts and server transfer journals; no inference work.
 CREATE TABLE IF NOT EXISTS evidence_exports (
  export_id uuid PRIMARY KEY,collection_id uuid NOT NULL REFERENCES clue_collections(collection_id),
  collection_revision bigint NOT NULL CHECK(collection_revision>0),part integer NOT NULL CHECK(part BETWEEN 1 AND 50),
