@@ -20,7 +20,14 @@ public class ObservationIndexReader {
         this.authorization="Basic "+Base64.getEncoder().encodeToString((user+":"+password).getBytes(StandardCharsets.UTF_8));
     }
     public Map<String,Object> read(List<UUID> observations){
+        return readIndex(index,observations,false);
+    }
+    public Map<String,Object> readReviewedPlates(List<UUID> observations){
+        return readIndex(ReviewedPlatePublisher.indexName(index),observations,true);
+    }
+    private Map<String,Object> readIndex(String target,List<UUID> observations,boolean refreshedOnly){
         if(observations==null||observations.isEmpty()||observations.size()>25||new HashSet<>(observations).size()!=observations.size()||observations.stream().anyMatch(Objects::isNull))throw new IllegalArgumentException("Bounded observation IDs required");
-        return client.post("/"+index+"/_mget",Map.of("ids",observations.stream().map(UUID::toString).toList()),authorization,Duration.ofSeconds(5));
+        // A realtime GET can see a write before search can. Readiness must use the refreshed view.
+        return client.post("/"+target+"/_mget"+(refreshedOnly?"?realtime=false":""),Map.of("ids",observations.stream().map(UUID::toString).toList()),authorization,Duration.ofSeconds(5));
     }
 }

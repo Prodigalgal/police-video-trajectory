@@ -71,6 +71,7 @@ tests/*
 !tests/test_midstream_gitops.py
 !tests/test_inference_receipt.py
 !tests/test_processing_trace_api.py
+!tests/test_reviewed_plate_status_api.py
 !tests/test_recording_windows.py
 !tests/test_session_media.py
 !tests/test_recording_control.py

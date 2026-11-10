@@ -11,6 +11,7 @@ import ObservationSpecialistPanel from './ObservationSpecialistPanel.jsx'
 import ObservationClipPlayer from './ObservationClipPlayer.jsx'
 import {videoOffsetMs} from './video-position.js'
 import ProcessingTracePanel from './ProcessingTracePanel.jsx'
+import ReviewedPlateSearchPanel from './ReviewedPlateSearchPanel.jsx'
 
 export default function EvidenceDialog({ item, onClose, onPlay, onUnauthenticated, reviewContext, onNavigate }) {
   const panel = useModal(onClose)
@@ -70,6 +71,7 @@ export default function EvidenceDialog({ item, onClose, onPlay, onUnauthenticate
         <dt>{detail.source_time ? '来源时间' : '记录时间'}</dt><dd>{formatTime(detail.source_time || detail.received_at) || '未知'}</dd>
         <dt>{detail.video?.kind === 'session_segment' ? '留存片段位置' : '片内位置'}</dt><dd>{formatOffset(videoOffsetMs(detail))}</dd></dl>
         {detail.video?.available && <button type="button" className="primary evidence-play" onClick={() => onPlay({...detail,video_context_mode:'full'})}>查看完整录像</button>}
+        {!loading&&detail.observation_id===item.observation_id&&<ReviewedPlateSearchPanel detail={detail} onUnauthenticated={onUnauthenticated} onSourceChanged={()=>{setDetail(current=>current?{...current,reviewed_plate:{state:'pending'}}:current);setReviewRefresh(previous=>previous+1)}}/>}
         {detail.reviewed_plate?.state==='ready'&&<details className="evidence-record"><summary>车牌复核依据</summary><InfoBubble title="车牌关联范围">仅确认当前画面，不建立跨帧或跨点位身份。撤销复核或来源变化后不再用于检索。</InfoBubble><dl><dt>完整车牌</dt><dd>{detail.reviewed_plate.number}</dd>{detail.reviewed_plate.proofs.map(proof=><React.Fragment key={proof.job_id}><dt>识别任务</dt><dd>{proof.job_id}</dd><dt>复核版本</dt><dd>{proof.review_revision}</dd><dt>结果摘要</dt><dd>{proof.result_sha256}</dd></React.Fragment>)}</dl></details>}
         <details className="evidence-record"><summary>证据记录</summary><dl><dt>观测编号</dt><dd>{detail.observation_id}</dd><dt>模型</dt><dd>{detail.model_id}</dd><dt>识别版本</dt><dd>{detail.prompt_version}</dd><dt>记录版本</dt><dd>{detail.record_version}</dd>{detail.evidence?.sha256 && <><dt>关键帧 校验摘要</dt><dd>{detail.evidence.sha256}</dd></>}</dl></details>
         {reviewContext?<ReviewPanel context={reviewContext} detail={detail} digest={digest} onUnauthenticated={onUnauthenticated}/>:<CollectionPicker detail={detail} onUnauthenticated={onUnauthenticated}/>}

@@ -48,16 +48,13 @@ public class ReviewedPlatePublisher {
     public boolean processOne(){
         if(!facts.enabled())return false;var claimed=claim();if(claimed.isEmpty())return false;var work=claimed.get();
         try{
-            var snapshot=facts.resolve(work.observation());var document=new LinkedHashMap<String,Object>();
+            var snapshot=facts.resolve(work.observation());Map<?,?> source=null;
             if("ready".equals(snapshot.outcome())){
                 var stored=es.get("/"+baseIndex+"/_doc/"+work.observation(),readerAuthorization,Duration.ofSeconds(30));
-                if(!(stored.get("_source") instanceof Map<?,?> source)||!work.observation().toString().equals(source.get("observation_id"))||!(source.get("record_version") instanceof Number version)||version.longValue()!=snapshot.version()||!snapshot.frame().toString().equals(source.get("frame_id"))||!snapshot.camera().equals(source.get("camera_id"))||!"vehicle".equals(source.get("target_type"))||!Boolean.FALSE.equals(source.get("deleted")))throw new InvalidBaseDocument();
-                source.forEach((key,value)->{if(!(key instanceof String name))throw new InvalidBaseDocument();document.put(name,value);});
-                document.put("reviewed_plate_number",snapshot.number());document.put("plate_proofs",snapshot.proofs());
-            }else{
-                document.put("observation_id",work.observation().toString());document.put("record_version",snapshot.version());document.put("deleted",true);
+                if(!(stored.get("_source") instanceof Map<?,?> document))throw new ReviewedPlateDocument.SourceChanged();
+                source=document;
             }
-            document.put("plate_projection_revision",work.revision());document.put("plate_fact_sha256",snapshot.sha256());document.put("plate_projection_outcome",snapshot.outcome());
+            var document=ReviewedPlateDocument.build(snapshot,work.revision(),source);
             es.putVersioned(plateIndex,work.observation(),work.revision(),document,authorization);
             tx.executeWithoutResult(status->db.update("""
                 UPDATE reviewed_plate_index_tasks SET published_revision=GREATEST(published_revision,?),source_record_version=?,evidence_sha256=?,fact_sha256=?,
@@ -66,7 +63,7 @@ public class ReviewedPlatePublisher {
                 WHERE observation_id=? AND lease_owner=? AND lease_generation=?
                 """,work.revision(),snapshot.version(),snapshot.evidence(),snapshot.sha256(),work.revision(),snapshot.outcome(),work.observation(),owner,work.generation()));
         }catch(RuntimeException failure){
-            String reason=failure instanceof InvalidBaseDocument?"base_document_changed":failure instanceof SecureJsonClient.UpstreamFailure?"search_backend_unavailable":"projection_source_unavailable";
+            String reason=failure instanceof ReviewedPlateDocument.SourceChanged?"base_document_changed":failure instanceof SecureJsonClient.UpstreamFailure?"search_backend_unavailable":"projection_source_unavailable";
             tx.executeWithoutResult(status->db.update("""
                 UPDATE reviewed_plate_index_tasks SET attempts=CASE WHEN requested_revision=? THEN attempts ELSE 0 END,
                  last_error_code=?,lease_owner=NULL,lease_expires_at=NULL,next_attempt_at=clock_timestamp()+(LEAST(300,5*power(2,LEAST(attempts,6))) * interval '1 second'),updated_at=clock_timestamp()
@@ -75,7 +72,6 @@ public class ReviewedPlatePublisher {
         }
         return true;
     }
-    private static final class InvalidBaseDocument extends RuntimeException{}
     public Map<String,Object> status(){
         if(!facts.enabled())return Map.of("enabled",false);
         var counts=db.queryForMap("SELECT count(*) FILTER(WHERE requested_revision=published_revision AND projection_outcome='ready') AS indexed,count(*) FILTER(WHERE requested_revision>published_revision AND attempts<?) AS pending,count(*) FILTER(WHERE requested_revision>published_revision AND attempts>=?) AS failed,count(*) FILTER(WHERE requested_revision=published_revision AND projection_outcome='conflict') AS conflicts FROM reviewed_plate_index_tasks",MAX_ATTEMPTS,MAX_ATTEMPTS);

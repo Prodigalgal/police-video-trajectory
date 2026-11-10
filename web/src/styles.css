@@ -141,3 +141,4 @@ body:has([role="dialog"][aria-modal="true"])>.page-notification-layer,body:has([
 .model-local-field{display:grid;gap:8px;margin:16px 0;font-size:13px;color:var(--muted,#52647b)}.model-local-field select{box-sizing:border-box;width:100%;min-width:0;min-height:44px;border:1px solid #d6e0ec;border-radius:8px;background:#fff;padding:10px;color:#334e6b;font:inherit}
 
 .processing-trace .context-heading>.text-button{min-height:44px}.processing-trace .trace-resource-action{min-width:9em;white-space:nowrap}
+.reviewed-plate-search{margin:16px 0;min-width:0}.reviewed-plate-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}.reviewed-plate-actions>span{flex:1 1 100%;overflow-wrap:anywhere}.reviewed-plate-actions>a{display:inline-flex;align-items:center;text-decoration:none;box-sizing:border-box}.reviewed-plate-actions .text-button{min-height:44px}

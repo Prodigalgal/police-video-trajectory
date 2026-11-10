@@ -59,6 +59,7 @@ def mount_specialists(app,cfg,authenticated,origin_ok):
                     'candidate_expired','candidate_queue_full','invalid_candidate_request','admin_required'})
     allowed.add('invalid_specialist_cursor')
     allowed.update({'specialist_control_conflict','invalid_business_request','business_unavailable'})
+    allowed.update({'plate_search_changed','invalid_plate_search_request'})
     async def forward(request,method,suffix,body=None,params=None,*,admin=False):
         if method!='GET':origin_ok(request)
         if not authenticated(request):raise HTTPException(401,'请先登录')
@@ -84,6 +85,9 @@ def mount_specialists(app,cfg,authenticated,origin_ok):
     async def observation_jobs(identity:UUID,request:Request,observation_version:int=Query(ge=1,le=9007199254740991),
                                limit:int=Query(default=10,ge=1,le=20),after:UUID|None=None):
         return await forward(request,'GET','/observations/'+str(identity),params={'observationVersion':observation_version,'limit':limit,**({'after':str(after)} if after else {})})
+    @app.get('/api/v1/observations/{identity}/plate-search-status')
+    async def plate_search_status(identity:UUID,request:Request,observation_version:int=Query(ge=1,le=9007199254740991)):
+        return await forward(request,'GET',f'/observations/{identity}/plate-search',params={'observationVersion':observation_version})
     @app.get('/api/admin/specialist-candidates')
     async def candidates(request:Request,camera_id:str|None=Query(default=None,min_length=1,max_length=100),
                          state:Literal['ready','active','waiting_source','waiting_configuration','waiting_budget','waiting_result','waiting_review','submitted','reused','skipped','invalid','expired','failed']|None=None,
