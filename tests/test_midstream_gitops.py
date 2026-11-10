@@ -35,6 +35,10 @@ def test_middle_modules_are_bounded_and_keep_operator_pause_and_private_bindings
     assert load('specialist-processing-catalog')['data']['operator_note']=='retained'
     credential_volume=next(entry for entry in load('ai-gateway')['spec']['template']['spec']['volumes'] if entry['name']=='model-credentials')
     assert [entry['path'] for source in credential_volume['projected']['sources'] for entry in source['secret']['items']]==['approved.token']
+    gateway=load('ai-gateway')['spec']['template']['spec'];environment={e['name']:e for e in gateway['containers'][0]['env']}
+    assert environment['MODEL_PROVIDERS_FILE']['value']=='/model-providers/providers.json'
+    assert next(v for v in gateway['volumes'] if v['name']=='model-providers')['configMap']['items']==[{'key':'providers.json','path':'providers.json'}]
+    assert next(v for v in gateway['containers'][0]['volumeMounts'] if v['name']=='model-providers')['readOnly'] is True
     native=load('specialist-service')['spec']['template']['spec'];container=native['containers'][0]
     assert not native['automountServiceAccountToken'] and container['resources']['limits']['cpu']=='1000m'
     assert container['readinessProbe']['httpGet']['scheme']=='HTTPS'

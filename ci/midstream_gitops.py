@@ -18,6 +18,8 @@ def configure(app_root,runtime,version,revision,run):
     environment(core_container,'VIDEO_MODEL_PROVIDERS_FILE','/model-providers/providers.json')
     environment(core_container,'VIDEO_PROCESSING_CATALOG_FILE','/processing-catalog/catalog.json')
     volume(core_pod,'model-providers',{'configMap':{'name':'model-provider-registry'}},'/model-providers')
+    volume(gateway_pod,'model-providers',{'configMap':{'name':'model-provider-registry','items':[{'key':'providers.json','path':'providers.json'}]}},'/model-providers')
+    environment(gateway_container,'MODEL_PROVIDERS_FILE','/model-providers/providers.json')
     volume(core_pod,'processing-catalog',{'configMap':{'name':'specialist-processing-catalog'}},'/processing-catalog')
     core_ca=next(value for value in analysis['spec']['template']['spec']['volumes'] if value['name']=='core-ca')
     core_ca=deepcopy(core_ca)

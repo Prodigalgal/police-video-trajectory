@@ -5,12 +5,28 @@ import LocalModelsPanel from './LocalModelsPanel.jsx'
 import {formatTime} from './result-format.js'
 import {chineseMessage} from './chinese-copy.js'
 import {modelErrors,roleLabels,selectionKey,selectionValue,latestProfiles,appliedConsumers,commandRequest} from './managed-models.js'
+import {validateProviderCatalog,chooseCatalogModel,providerCatalogPath,catalogFailureNames} from './provider-catalog.js'
 
 function ModelDialog({profile,providers,api,onClose,onSaved,onError}){
-  const [form,setForm]=useState(()=>({display_name:profile?.display_name||'',provider:profile?.provider||providers[0]?.id||'',model:profile?.model||'',protocol:profile?.protocol||'chat_completions',roles:profile?.roles||['text','vision'],image_transport:profile?.image_transport||'inline',output_mode:profile?.output_mode||'text',json_mode:profile?.json_mode||false,reasoning_effort:profile?.reasoning_effort||''}))
+  const initialProvider=providers.find(value=>value.id===profile?.provider)||providers.find(value=>value.activation_allowed)||providers[0]
+  const [form,setForm]=useState(()=>({display_name:profile?.display_name||'',provider:initialProvider?.id||'',model:profile?.model||'',protocol:profile?.protocol||initialProvider?.protocols[0]||'chat_completions',roles:profile?.roles||initialProvider?.roles||[],image_transport:profile?.image_transport||'inline',output_mode:profile?.output_mode||'text',json_mode:profile?.json_mode||false,reasoning_effort:profile?.reasoning_effort||''}))
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),request=useRef(null),identity=useRef(profile?.profile_id||crypto.randomUUID())
+  const [catalog,setCatalog]=useState(null),[reading,setReading]=useState(false),catalogAction=useRef(null),currentProvider=useRef(form.provider);currentProvider.current=form.provider
+  useEffect(()=>()=>catalogAction.current?.abort(),[])
   const panel=useModal(()=>{if(!busy)onClose()}),provider=providers.find(value=>value.id===form.provider)
   const change=(key,value)=>setForm(previous=>({...previous,[key]:value}))
+  function changeProvider(id){
+    const next=providers.find(value=>value.id===id);catalogAction.current?.abort();setCatalog(null);setReading(false);setError('')
+    setForm(previous=>({...previous,provider:next.id,model:'',protocol:next.protocols.includes(previous.protocol)?previous.protocol:next.protocols[0],roles:previous.roles.filter(role=>next.roles.includes(role)),reasoning_effort:'',output_mode:'text',json_mode:false}))
+  }
+  async function readCatalog(force=false){
+    catalogAction.current?.abort();const abort=new AbortController();catalogAction.current=abort;setReading(true);setError('');const selectedProvider=provider
+    try{
+      const value=validateProviderCatalog(await api(providerCatalogPath(selectedProvider.id,force),{method:force?'POST':'GET',signal:abort.signal}),selectedProvider)
+      if(!abort.signal.aborted&&currentProvider.current===selectedProvider.id)setCatalog(value)
+    }catch(failure){if(!abort.signal.aborted){setCatalog(null);setError(modelErrors[failure.code]||chineseMessage(failure.message));if(failure.unauthorized)onError(failure)}}
+    finally{if(!abort.signal.aborted)setReading(false)}
+  }
   async function submit(event){
     event.preventDefault();setBusy(true);setError('')
     try{await api('models/profiles/'+identity.current,{method:'PUT',body:JSON.stringify(commandRequest(request,{expected_version:profile?.version||0,definition:form}))});onSaved()}
@@ -20,7 +36,9 @@ function ModelDialog({profile,providers,api,onClose,onSaved,onError}){
     <div className="admin-card-heading"><h2 id="model-dialog-title">{profile?'修订模型配置':'新增模型配置'}</h2><button className="dialog-close" type="button" onClick={onClose} disabled={busy} aria-label="关闭模型配置">×</button></div>
     <form onSubmit={submit} aria-busy={busy}>
       <label htmlFor="model-label">显示名称</label><input id="model-label" required maxLength={100} value={form.display_name} onChange={event=>change('display_name',event.target.value)}/>
-      <label htmlFor="model-provider">提供商</label><select id="model-provider" value={form.provider} onChange={event=>{const next=providers.find(value=>value.id===event.target.value);setForm(previous=>({...previous,provider:next.id,protocol:next.protocols.includes(previous.protocol)?previous.protocol:next.protocols[0],roles:previous.roles.filter(role=>next.roles.includes(role))}))}}>{providers.map(value=><option key={value.id} value={value.id}>{value.label}{value.activation_allowed?'':'（仅保存）'}</option>)}</select>
+      <label htmlFor="model-provider">提供商</label><select id="model-provider" value={form.provider} disabled={busy} onChange={event=>changeProvider(event.target.value)}>{providers.map(value=><option key={value.id} value={value.id}>{value.label}{value.activation_allowed?'':'（仅保存）'}</option>)}</select>
+      <div className="model-catalog-actions"><button type="button" className="admin-button secondary" disabled={busy||reading||!provider?.activation_allowed} onClick={()=>readCatalog(false)}>{reading?'正在读取目录…':'读取上游模型'}</button>{catalog&&<button type="button" className="text-button" disabled={busy||reading} onClick={()=>readCatalog(true)}>刷新上游目录</button>}<InfoBubble title="目录与实测的区别">目录反映上游声明，不会发起推理或切换绑定。画面分析还受部署用途限制；上传方式和具体模型的稳定性需实际调用验证。媒体生成专用模型不用于本系统的检索分析。</InfoBubble></div>
+      {catalog?.provider===provider?.id&&<section className="model-catalog-result" aria-label="上游模型目录" aria-busy={reading}>{catalog.state==='ready'?<><label htmlFor="catalog-model">从目录选择模型</label><select id="catalog-model" disabled={busy||reading} value={catalog.models.some(model=>model.id===form.model)?form.model:''} onChange={event=>{const model=catalog.models.find(value=>value.id===event.target.value);if(model)setForm(previous=>chooseCatalogModel(previous,model))}}><option value="">请选择，也可在下方手工填写</option>{catalog.models.map(model=><option key={model.id} value={model.id} disabled={!model.allowed_roles.length}>{model.name} · {model.allowed_roles.length?model.allowed_roles.map(role=>roleLabels[role]).join('、'):model.analysis_reason?'媒体生成用途':'能力未开放或未声明'}</option>)}</select><small className="admin-muted">目录 {catalog.models.length} 项 · {catalog.cached?'使用短期缓存':'上游已响应'} · {formatTime(catalog.checked_at)}</small></>:<div className="help-heading"><span>{catalogFailureNames[catalog.diagnostics.category]}</span><InfoBubble title="上游诊断信息"><p>提供商：{provider.label}</p><p>时间：{formatTime(catalog.checked_at)}</p>{catalog.diagnostics.upstream_status&&<p>实际状态码：{catalog.diagnostics.upstream_status}</p>}{catalog.diagnostics.upstream_request_id&&<p>请求编号：{catalog.diagnostics.upstream_request_id}</p>}{catalog.diagnostics.upstream_error_code&&<p>错误代码：{catalog.diagnostics.upstream_error_code}</p>}<p>可保留已存模型配置，稍后刷新；读取目录不会修改现有用途绑定。</p></InfoBubble></div>}</section>}
       <label htmlFor="model-name">模型名称</label><input id="model-name" required maxLength={150} autoComplete="off" value={form.model} onChange={event=>change('model',event.target.value)}/>
       <label htmlFor="model-protocol">请求协议</label><select id="model-protocol" value={form.protocol} onChange={event=>change('protocol',event.target.value)}>{provider?.protocols.map(value=><option key={value} value={value}>{value==='responses'?'响应协议（Responses）':'对话协议（Chat Completions）'}</option>)}</select>
       <fieldset><legend>可用用途</legend>{Object.entries(roleLabels).map(([role,label])=><label className="admin-checkbox" key={role}><input type="checkbox" checked={form.roles.includes(role)} disabled={!provider?.roles.includes(role)} onChange={event=>change('roles',event.target.checked?[...form.roles,role]:form.roles.filter(value=>value!==role))}/>{label}</label>)}</fieldset>

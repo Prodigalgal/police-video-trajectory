@@ -53,6 +53,7 @@ class Settings:
     control_url: str = ''
     control_ca_file: str = ''
     credentials_root: str = ''
+    providers_file: str = ''
     control_consumer: str = 'ai-gateway'
 
     @classmethod
@@ -90,7 +91,7 @@ class Settings:
                    result_cache_entries=int(get('MODEL_RESULT_CACHE_ENTRIES','100000')),
                    result_cache_ttl_seconds=int(get('MODEL_RESULT_CACHE_TTL_SECONDS','86400')),
                    control_url=get('MODEL_CONTROL_URL'),control_ca_file=get('MODEL_CONTROL_CA_FILE'),
-                   credentials_root=get('MODEL_CREDENTIALS_ROOT'),control_consumer=get('MODEL_CONTROL_CONSUMER','ai-gateway'))
+                   credentials_root=get('MODEL_CREDENTIALS_ROOT'),providers_file=get('MODEL_PROVIDERS_FILE'),control_consumer=get('MODEL_CONTROL_CONSUMER','ai-gateway'))
 
     @property
     def ca_valid(self):

@@ -6,13 +6,13 @@ import logging
 import re
 import ssl
 import time
-from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
 from .client import GatewayError
 from .config import ModelConfig
+from .credentials import read_credential
 
 LOG=logging.getLogger('video_model_runtime')
 
@@ -39,16 +39,7 @@ class ModelRuntime:
             self.http=httpx.AsyncClient(verify=verify,transport=transport,timeout=5,follow_redirects=False,trust_env=False)
 
     def _credential(self,filename):
-        if not isinstance(filename,str) or not re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,79}',filename) or '..' in filename:
-            raise ValueError('invalid credential reference')
-        root=Path(self.settings.credentials_root).resolve(strict=True)
-        path=(root/filename).resolve(strict=True)
-        # Kubernetes projected Secret files are symlinks into their own mount.
-        if not path.is_relative_to(root) or not path.is_file():raise ValueError('invalid credential path')
-        with path.open('rb') as source:raw=source.read(4097)
-        key=raw.decode().strip()
-        if not key or len(raw)>4096 or any(ord(char)<32 or ord(char)>126 for char in key):raise ValueError('invalid credential')
-        return key
+        return read_credential(self.settings.credentials_root,filename)
 
     def _binding(self,raw,role):
         if raw is None:return None

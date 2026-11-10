@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .client import GatewayError, ModelClient
+from .provider_catalog import ProviderCatalog,CatalogRejected
 from . import __version__
 from .config import Settings
 from .contracts import AppearanceDescription, AppearanceImageMetadata, FrameRequest, FrameResult, ImageMetadata, SearchPlan, SearchRequest, TargetMetadata, TargetRequest, TargetResult
@@ -102,6 +103,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         async with httpx.AsyncClient(transport=transport, timeout=settings.timeout_seconds, verify=verify,
                                      trust_env=False, follow_redirects=False) as http:
             app.state.model_client = ModelClient(settings, http)
+            app.state.provider_catalog=ProviderCatalog(settings,http)
             runtime=ModelRuntime(settings)
             app.state.model_runtime=runtime
             await runtime.refresh()
@@ -139,6 +141,11 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         expected = "Bearer " + settings.shared_token
         if not authorization or len(authorization) > 1024 or not hmac.compare_digest(authorization.encode("utf-8"), expected.encode("utf-8")):
             raise HTTPException(401, "未授权访问", headers={"WWW-Authenticate": "Bearer"})
+
+    @app.get('/internal/v1/providers/{provider}/models',dependencies=[Depends(authorized)])
+    async def provider_models(provider:str,request:Request,refresh:bool=False):
+        try:return await request.app.state.provider_catalog.read(provider,refresh)
+        except CatalogRejected as failure:return JSONResponse({'code':failure.code},status_code=failure.status)
 
     @app.get("/healthz")
     def health():

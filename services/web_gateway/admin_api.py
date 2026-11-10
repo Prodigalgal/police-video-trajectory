@@ -130,7 +130,8 @@ def mount_admin(app,cfg,authenticated,origin_ok):
                            'module_job_unavailable','module_queue_full','module_recovery_conflict','invalid_module_source',
                            'model_provider_unavailable','model_providers_unavailable','model_request_conflict','model_profile_conflict',
                            'model_binding_conflict','model_registry_full','model_profile_unavailable','model_activation_forbidden',
-                           'invalid_model_request','model_control_unavailable','invalid_business_request','business_unavailable'}
+                           'invalid_model_request','model_control_unavailable','invalid_business_request','business_unavailable',
+                           'invalid_model_provider','model_catalog_unavailable','model_catalog_invalid','model_catalog_configuration_changed'}
                     code=data.get('code') if data.get('code') in codes else 'admin_unavailable'
                     return JSONResponse({'code':code,'detail':'管理操作未完成'},status_code=response.status_code if response.status_code in {400,403,404,409,429} or response.status_code==422 and code=='invalid_module_source' else 503)
                 if path.startswith('/internal/admin/users'):
@@ -153,6 +154,16 @@ def mount_admin(app,cfg,authenticated,origin_ok):
 
     @app.get('/api/admin/models/configuration')
     async def model_configuration(request:Request):return await forward(request,'GET','/internal/admin/models/configuration')
+
+    @app.get('/api/admin/models/providers/{provider}/models')
+    async def provider_models(provider:str,request:Request):
+        if not re.fullmatch('[a-z][a-z0-9_-]{0,79}',provider):raise HTTPException(422,'提供商标识无效')
+        return await forward(request,'GET',f'/internal/admin/models/providers/{provider}/models')
+
+    @app.post('/api/admin/models/providers/{provider}/models/refresh')
+    async def refresh_provider_models(provider:str,request:Request):
+        if not re.fullmatch('[a-z][a-z0-9_-]{0,79}',provider):raise HTTPException(422,'提供商标识无效')
+        return await forward(request,'POST',f'/internal/admin/models/providers/{provider}/models/refresh')
 
     @app.put('/api/admin/models/profiles/{profile_id}')
     async def save_model(profile_id:UUID,body:ModelSave,request:Request):
