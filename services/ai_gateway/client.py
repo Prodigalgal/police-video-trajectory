@@ -104,7 +104,7 @@ def extract_text(payload: object, style: str):
 
 
 class ModelClient:
-    def __init__(self, settings: Settings, client: httpx.AsyncClient):
+    def __init__(self, settings: Settings, client: httpx.AsyncClient,admission=None):
         self.settings = settings
         self.client = client
         if not 0 <= settings.text_reserved < settings.max_inflight:
@@ -114,6 +114,8 @@ class ModelClient:
                                  if settings.text_reserved else None)
         self.active_total = 0
         self.active_vision = 0
+        from .admission import ModelAdmissionClient
+        self.admission=admission if admission is not None else ModelAdmissionClient(settings) if settings.cluster_admission else None
         self.result_cache = (ResultCache(settings.result_cache_dir,settings.result_cache_bytes,
             settings.result_cache_entries,settings.result_cache_ttl_seconds) if settings.result_cache_dir else None)
 
@@ -139,7 +141,9 @@ class ModelClient:
                     self.active_vision += 1
             except TimeoutError:
                 raise GatewayError("模型网关繁忙，请稍后重试", 503) from None
-            yield
+            if self.admission is None:yield
+            else:
+                async with self.admission.slot(vision):yield
         finally:
             if total_acquired:
                 self.active_total -= 1
@@ -148,6 +152,9 @@ class ModelClient:
                 self.semaphore.release()
             if vision_acquired:
                 self.vision_semaphore.release()
+
+    async def close(self):
+        if self.admission is not None:await self.admission.close()
 
     async def run(self, config: ModelConfig, prompt: str, result_model: type[BaseModel], image_data_url: str | None = None,
                   *, image_bytes: bytes | None = None, media_type: str = 'image/jpeg', timeout_seconds: float | None = None,

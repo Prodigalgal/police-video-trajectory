@@ -1,0 +1,20 @@
+{
+  "namespace": "police-video",
+  "version": "0.36.0",
+  "core_image": "example/police-video-core:20261111-v0.36.0-offline-sourcecommit",
+  "runtime_image": "example/police-video-runtime:20261111-v0.36.0-offline-sourcecommit",
+  "origin": "https://video.example.invalid",
+  "media_claim": "video-media",
+  "media_access_mode": "ReadWriteMany",
+  "database_secret": "video-database",
+  "elasticsearch_secret": "video-elasticsearch",
+  "service_secret": "video-service-credentials",
+  "core_tls_secret": "video-core-tls",
+  "web_tls_secret": "video-web-tls",
+  "gateway_tls_secret": "video-gateway-tls",
+  "provider_registry": "video-model-providers",
+  "provider_credentials": "video-model-credentials",
+  "model_total": 2,
+  "text_reserved": 1,
+  "replicas": 2
+}

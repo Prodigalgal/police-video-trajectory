@@ -1,4 +1,4 @@
--- Application version: 0.35.0. Optional storage producers are disabled until explicitly configured.
+-- Application version: 0.36.0. Optional storage producers are disabled until explicitly configured.
 CREATE TABLE IF NOT EXISTS pipeline_features (
     feature_key text PRIMARY KEY,
     enabled boolean NOT NULL DEFAULT false,

@@ -74,6 +74,9 @@ def verify(root=ROOT, *, web_dist=False, jar=None):
     found['migration_031']=re.search(r'Application version: ([0-9.]+)\.',local_models).group(1)
     optional_exports=(root/'services/core_api/src/main/resources/db/032-optional-video-export.sql').read_text()
     found['migration_032']=re.search(r'Application version: ([0-9.]+)\.',optional_exports).group(1)
+    cluster_coordination=(root/'services/core_api/src/main/resources/db/033-cluster-coordination.sql').read_text()
+    found['migration_033']=re.search(r'Application version: ([0-9.]+)\.',cluster_coordination).group(1)
+    found['cluster_template']=json.loads((root/'deploy/cluster/config.example.json').read_text())['version']
     if web_dist:
         found['web_artifact'] = json.loads((root / 'web/dist/version.json').read_text())['version']
     if jar:

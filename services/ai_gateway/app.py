@@ -114,6 +114,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
                     watcher.cancel()
                     with suppress(asyncio.CancelledError):await watcher
                 await runtime.close()
+                await app.state.model_client.close()
 
     app = FastAPI(title="Internal AI Gateway", version=__version__, docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_middleware(BinaryInputMiddleware,shared_token=settings.shared_token,max_inflight=settings.max_inflight)
@@ -152,11 +153,12 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         return {"status": "ok"}
 
     @app.get("/readyz")
-    def ready(request:Request):
+    async def ready(request:Request):
         runtime=request.app.state.model_runtime
         checks = {"gateway_token": bool(settings.shared_token), "vision_configured": runtime.configs['vision'] is None or runtime.configs['vision'].valid,
                   "text_configured": runtime.configs['text'] is None or runtime.configs['text'].valid, "ca_available": settings.ca_valid,
                   "bindings_fresh":runtime.fresh}
+        if settings.cluster_admission:checks['cluster_admission']=await request.app.state.model_client.admission.ready()
         return JSONResponse({"ready": all(checks.values()), "checks": checks}, status_code=200 if all(checks.values()) else 503)
 
     @app.get("/internal/v1/capacity", dependencies=[Depends(authorized)])

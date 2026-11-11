@@ -52,7 +52,7 @@ def valid_work(challenge_id, nonce, bits):
 
 
 class PasswordAuth:
-    def __init__(self, username, encoded_hash, *, bits=18, trust_cf=False):
+    def __init__(self, username, encoded_hash, *, bits=18, trust_cf=False,state_store=None):
         if not isinstance(username, str) or not 1 <= len(username) <= 80 or not 16 <= bits <= 22:
             raise ValueError('invalid login configuration')
         self.username = username
@@ -64,6 +64,7 @@ class PasswordAuth:
         self.issues = defaultdict(deque)
         self.lock = threading.Lock()
         self.hash_slots = threading.BoundedSemaphore(2)
+        self.state_store=state_store
 
     def peer(self, request):
         raw = request.headers.get('cf-connecting-ip') if self.trust_cf else None
@@ -99,13 +100,17 @@ class PasswordAuth:
             left, right = max(left, right), min(left, right)
         answer = {'+': left+right, '−': left-right, '×': left*right}[operator]
         challenge_id = secrets.token_urlsafe(32)
-        with self.lock:
-            self._limit(self.issues, peer, 30, now).append(now)
-            self.challenges = {key: value for key, value in self.challenges.items() if value['expires'] > now}
-            if len(self.challenges) >= 2048:
-                raise HTTPException(429, '验证请求过多，请稍后再试')
-            self.challenges[challenge_id] = {'answer': str(answer), 'peer': peer, 'cookie': hashlib.sha256(cookie.encode()).digest(),
-                                             'expires': now+CHALLENGE_SECONDS}
+        if self.state_store is not None:
+            self.state_store.issue(challenge_id,peer,{'answer_digest':self.state_store.digest('answer',challenge_id+':'+str(answer)),
+                'cookie':hashlib.sha256(cookie.encode()).hexdigest(),'revision':self.revision,'bits':self.bits})
+        else:
+            with self.lock:
+                self._limit(self.issues, peer, 30, now).append(now)
+                self.challenges = {key: value for key, value in self.challenges.items() if value['expires'] > now}
+                if len(self.challenges) >= 2048:
+                    raise HTTPException(429, '验证请求过多，请稍后再试')
+                self.challenges[challenge_id] = {'answer': str(answer), 'peer': peer, 'cookie': hashlib.sha256(cookie.encode()).digest(),
+                                                 'expires': now+CHALLENGE_SECONDS}
         response.set_cookie(CHALLENGE_COOKIE, cookie, max_age=CHALLENGE_SECONDS, secure=True, httponly=True, samesite='strict', path='/api')
         return {'challenge_id': challenge_id, 'question': f'{left} {operator} {right} = ?',
                 'pow': {'algorithm': 'SHA-256', 'bits': self.bits}, 'expires_in': CHALLENGE_SECONDS}
@@ -113,17 +118,25 @@ class PasswordAuth:
     def login(self, body, request, lookup=None):
         now, peer = time.monotonic(), self.peer(request)
         failure_key=peer+'|'+(body.username or '').strip().casefold()
-        with self.lock:
-            history = self._limit(self.failures, failure_key, 5, now)
-            challenge = self.challenges.pop(body.challenge_id, None)
-            history.append(now)
+        if self.state_store is not None:
+            challenge=self.state_store.consume(body.challenge_id,failure_key)
+        else:
+            with self.lock:
+                history = self._limit(self.failures, failure_key, 5, now)
+                challenge = self.challenges.pop(body.challenge_id, None)
+                history.append(now)
         cookie = request.cookies.get(CHALLENGE_COOKIE, '')
         # Bind proof to the browser cookie. Reverse-proxy replicas and mobile
         # network changes must not invalidate a legitimate pending challenge.
-        if (not challenge or challenge['expires'] <= now or not isinstance(cookie, str)
-                or not hmac.compare_digest(challenge['cookie'], hashlib.sha256(cookie.encode()).digest())
-                or not hmac.compare_digest(str(body.captcha_answer).encode(), challenge['answer'].encode())
-                or not valid_work(body.challenge_id, body.pow_nonce, self.bits)):
+        if self.state_store is not None:
+            valid=bool(challenge and isinstance(cookie,str) and hmac.compare_digest(challenge['cookie'],hashlib.sha256(cookie.encode()).hexdigest())
+                and hmac.compare_digest(challenge['revision'],self.revision) and challenge['bits']==self.bits
+                and hmac.compare_digest(challenge['answer_digest'],self.state_store.digest('answer',str(body.challenge_id)+':'+str(body.captcha_answer))))
+        else:
+            valid=bool(challenge and challenge['expires']>now and isinstance(cookie,str)
+                and hmac.compare_digest(challenge['cookie'],hashlib.sha256(cookie.encode()).digest())
+                and hmac.compare_digest(str(body.captcha_answer).encode(),challenge['answer'].encode()))
+        if not valid or not valid_work(body.challenge_id, body.pow_nonce, self.bits):
             raise HTTPException(401, '验证未通过，请刷新验证码后重试')
         if not self.hash_slots.acquire(blocking=False):
             raise HTTPException(429, '登录验证繁忙，请稍后重试')
@@ -141,6 +154,7 @@ class PasswordAuth:
             self.hash_slots.release()
         if not good:
             raise HTTPException(401, '用户名或密码错误')
-        with self.lock:
-            self.failures.pop(failure_key, None)
+        if self.state_store is not None:self.state_store.clear(failure_key)
+        else:
+            with self.lock:self.failures.pop(failure_key, None)
         return record

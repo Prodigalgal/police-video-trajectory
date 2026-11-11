@@ -7,7 +7,8 @@ import sys
 root = Path(__file__).resolve().parents[1]
 allowed_roots = {'services','web','tests','ci','.github'}
 allowed_files = {'VERSION','.gitignore','.gitattributes','.dockerignore','README.md','deploy/check-version-contract.py',
-                 'deploy/appearance-catalog.json','deploy/appearance-models.json','deploy/plate-catalog.json'}
+                 'deploy/appearance-catalog.json','deploy/appearance-models.json','deploy/plate-catalog.json',
+                 'deploy/cluster/render.py','deploy/cluster/config.example.json','deploy/cluster/README.md'}
 forbidden_extensions = {'.mp4','.mkv','.avi','.mov','.jpg','.jpeg','.png','.webp','.pcap','.onnx','.pt',
                         '.pem','.key','.p12','.pfx','.crt','.sqlite','.sqlite3','.db','.docx','.pdf','.zip','.jar'}
 patterns = [re.compile(pattern,re.I) for pattern in (

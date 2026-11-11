@@ -10,6 +10,73 @@ from services.ai_gateway.app import create_app, failure_category
 from services.ai_gateway.config import ModelConfig, Settings
 
 
+def test_model_budget_is_shared_across_independent_gateways_and_reserves_text_capacity():
+    from dataclasses import replace
+    from services.ai_gateway.admission import ModelAdmissionClient
+    from services.ai_gateway.client import ModelClient
+    from services.ai_gateway.errors import GatewayError
+    async def run():
+        leases={};requests=[]
+        async def control(request):
+            if request.url.path.endswith('/readyz'):return httpx.Response(200,json={'ready':True})
+            value=json.loads(request.content);requests.append(value);identity=value['leaseId']
+            if request.url.path.endswith('/release'):
+                leases.pop(identity,None);return httpx.Response(200,json={'released':True})
+            if len(leases)>=2 or value['vision'] and sum(leases.values())>=1:return httpx.Response(200,json={'granted':False})
+            assert value['ttlSeconds']==375;leases[identity]=value['vision'];return httpx.Response(200,json={'granted':True,'lease_id':identity})
+        cfg=Settings(shared_token='coordination-test',control_url='https://core.invalid',control_ca_file='unused',cluster_admission=True,max_inflight=2)
+        async with httpx.AsyncClient() as upstream:
+            first=ModelClient(cfg,upstream,ModelAdmissionClient(replace(cfg,control_consumer='gateway-a'),httpx.MockTransport(control)))
+            second=ModelClient(cfg,upstream,ModelAdmissionClient(replace(cfg,control_consumer='gateway-b'),httpx.MockTransport(control)))
+            try:
+                async with first.request_slot(True):
+                    with pytest.raises(GatewayError) as full:
+                        async with second.request_slot(True):raise AssertionError('vision reserve was bypassed')
+                    assert full.value.status_code==429
+                    async with second.request_slot(False):
+                        assert len(leases)==2
+                        with pytest.raises(GatewayError):
+                            async with first.request_slot(False):raise AssertionError('total limit was bypassed')
+                assert not leases and first.active_total==second.active_total==0
+                assert {value['consumer'] for value in requests}=={'gateway-a','gateway-b'}
+            finally:await first.close();await second.close()
+    asyncio.run(run())
+
+
+def test_cluster_admission_cancellation_unknown_ack_and_outage_release_or_fail_closed():
+    from services.ai_gateway.admission import ModelAdmissionClient
+    from services.ai_gateway.errors import GatewayError
+    async def run():
+        leases=set();acquired=asyncio.Event();release_failed=False;lose_ack=False
+        async def control(request):
+            nonlocal release_failed
+            if request.url.path.endswith('/readyz'):return httpx.Response(503,json={'ready':False})
+            body=json.loads(request.content);identity=body['leaseId']
+            if request.url.path.endswith('/acquire'):
+                leases.add(identity)
+                if lose_ack:raise httpx.ReadTimeout('protocol acknowledgement lost',request=request)
+                return httpx.Response(200,json={'granted':True,'lease_id':identity})
+            if release_failed:raise httpx.ConnectError('protocol unavailable',request=request)
+            leases.discard(identity);return httpx.Response(200,json={'released':True})
+        cfg=Settings(shared_token='coordination-test',control_url='https://core.invalid',control_ca_file='unused',cluster_admission=True)
+        client=ModelAdmissionClient(cfg,httpx.MockTransport(control))
+        try:
+            async def hold():
+                async with client.slot(True):acquired.set();await asyncio.Event().wait()
+            pending=asyncio.create_task(hold());await acquired.wait();assert len(leases)==1
+            pending.cancel();await asyncio.gather(pending,return_exceptions=True);assert not leases
+            lose_ack=True
+            with pytest.raises(GatewayError):
+                async with client.slot(False):raise AssertionError('unknown grant must not run inference')
+            assert not leases
+            assert await client.ready() is False
+            lose_ack=False;release_failed=True
+            async with client.slot(False):pass
+            assert len(leases)==1 # The Core expiry lease is the recovery boundary.
+        finally:await client.close()
+    asyncio.run(run())
+
+
 TOKEN = "test-gateway-token"
 KEY = "test-model-secret"
 QUERY = {"query": "昨天下午穿黑上衣背包的人", "reference_time": "2026-10-31T10:00:00+08:00"}

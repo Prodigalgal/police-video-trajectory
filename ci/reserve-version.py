@@ -24,4 +24,9 @@ for name in ('package.json','package-lock.json'):
     if name=='package-lock.json':value['packages']['']['version']=version
     path.write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8',newline='\n')
 (root/'VERSION').write_text(version+'\n',encoding='utf-8',newline='\n')
+cluster_example=root/'deploy/cluster/config.example.json'
+if cluster_example.exists():
+    value=json.loads(cluster_example.read_text());old=value['version'];value['version']=version
+    for key in ('core_image','runtime_image'):value[key]=value[key].replace('-v'+old+'-','-v'+version+'-')
+    cluster_example.write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8',newline='\n')
 print('Reserved application version '+version)

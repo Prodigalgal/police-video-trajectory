@@ -10,6 +10,66 @@ from fastapi.testclient import TestClient
 from services.web_gateway.app import create_app
 from services.web_gateway.password_auth import password_hash, valid_work, _parse_hash
 
+
+class SharedLoginProtocol:
+    """Two independent web apps talk to the same bounded Core protocol fixture."""
+    def __init__(self):self.records={};self.failures={};self.received=[];self.available=True
+    def __call__(self,request):
+        if not self.available:return httpx.Response(503,json={'ready':False})
+        if request.url.path.endswith('/readyz'):return httpx.Response(200,json={'ready':True})
+        assert request.headers['authorization']=='Bearer coordination-test'
+        body=json.loads(request.content);self.received.append(body)
+        operation=request.url.path.rsplit('/',1)[-1]
+        if operation=='issue':
+            self.records[body['challengeId']]=body['payload'];return httpx.Response(200,json={'accepted':True})
+        if operation=='clear':self.failures.pop(body['failureKey'],None);return httpx.Response(200,json={'cleared':True})
+        if operation=='consume':
+            key=body['failureKey'];count=self.failures.get(key,0)
+            if count>=5:return httpx.Response(429,json={'code':'login_rate_limited'})
+            self.failures[key]=count+1;payload=self.records.pop(body['challengeId'],None)
+            return httpx.Response(200,json={'available':bool(payload),**({'payload':payload} if payload else {})})
+        raise AssertionError('Unexpected coordination operation')
+
+
+def shared_clients(settings,core):
+    cfg={**settings,'shared_auth_state':True,'session_secret':'c'*32,'admin_token':'coordination-test'}
+    return [TestClient(create_app(cfg,httpx.MockTransport(core)),base_url=ORIGIN) for _ in range(2)]
+
+
+def test_two_web_replicas_exchange_proofs_and_signed_sessions_without_stickiness(settings):
+    core=SharedLoginProtocol();first,second=shared_clients(settings,core)
+    with first,second:
+        assert first.get('/readyz').status_code==200
+        body=challenge(first);second.cookies.update(first.cookies)
+        assert second.post('/api/session',headers={'Origin':ORIGIN},json=body).status_code==200
+        first.cookies.update(second.cookies);assert first.get('/api/session').json()['authenticated'] is True
+        assert first.post('/api/session',headers={'Origin':ORIGIN},json=body).status_code==401
+        assert all('password' not in json.dumps(record) and 'captcha_answer' not in record for record in core.received)
+        stored=next(record['payload'] for record in core.received if 'payload' in record)
+        assert stored.keys()=={'answer_digest','cookie','revision','bits'} and len(stored['answer_digest'])==64
+
+
+def test_shared_failure_limit_and_outage_never_fall_back_to_local_state(settings):
+    core=SharedLoginProtocol();first,second=shared_clients(settings,core)
+    with first,second:
+        for index in range(5):
+            browser=first if index%2 else second
+            assert browser.post('/api/session',headers={'Origin':ORIGIN},json={'username':'trial','password':'bad'}).status_code==401
+        assert first.post('/api/session',headers={'Origin':ORIGIN},json={'username':'trial','password':'bad'}).status_code==429
+        core.available=False
+        assert first.get('/readyz').status_code==503
+        assert second.get('/api/auth/challenge').status_code==503
+
+
+def test_shared_challenge_is_browser_bound_consumed_on_failure_and_requires_shared_secret(settings):
+    core=SharedLoginProtocol();first,second=shared_clients(settings,core)
+    with first,second:
+        body=challenge(first)
+        assert second.post('/api/session',headers={'Origin':ORIGIN},json=body).status_code==401
+        assert first.post('/api/session',headers={'Origin':ORIGIN},json=body).status_code==401
+    with client_for({**settings,'shared_auth_state':True,'admin_token':'coordination-test'}) as client:
+        assert client.get('/readyz').status_code==503
+
 ORIGIN = 'https://video.example.invalid'
 
 

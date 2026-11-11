@@ -1,5 +1,5 @@
 -- Application business records. Reviews never update model output or training labels.
--- Application version: 0.35.0. Additive migration; not applied to the public database.
+-- Application version: 0.36.0. Additive migration; not applied to the public database.
 CREATE TABLE IF NOT EXISTS clue_collections (
     collection_id uuid PRIMARY KEY,
     create_fingerprint text NOT NULL,

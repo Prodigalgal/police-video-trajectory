@@ -52,6 +52,7 @@ def create_app(config=None, transport=None):
         "password_hash": os.getenv("WEB_PASSWORD_HASH", ""),
         "pow_bits": int(os.getenv("WEB_POW_BITS", "18")),
         "trust_cf": os.getenv("WEB_TRUST_CF_HEADERS", "false") == "true",
+        "shared_auth_state":os.getenv('WEB_SHARED_AUTH_STATE','false')=='true',
         "session_secret": os.getenv("WEB_SESSION_SECRET", ""),
         "core_token": os.getenv("CORE_SEARCH_TOKEN", ""),
         "admin_token":os.getenv("CORE_ADMIN_TOKEN",""),
@@ -103,7 +104,9 @@ def create_app(config=None, transport=None):
     password_auth = None
     if auth_mode == 'password':
         try:
-            password_auth = PasswordAuth(cfg.get('username'), cfg.get('password_hash'), bits=cfg.get('pow_bits',18), trust_cf=cfg.get('trust_cf',False))
+            from .shared_login import SharedLoginStore
+            state_store=SharedLoginStore(cfg,transport) if cfg.get('shared_auth_state',False) else None
+            password_auth = PasswordAuth(cfg.get('username'), cfg.get('password_hash'), bits=cfg.get('pow_bits',18), trust_cf=cfg.get('trust_cf',False),state_store=state_store)
         except ValueError:
             pass
 
@@ -112,7 +115,7 @@ def create_app(config=None, transport=None):
             parsed = urlsplit(cfg["core_url"])
             credentials_ok = password_auth is not None if auth_mode == 'password' else auth_mode == 'token' and bool(cfg.get('access_token'))
             if multi_accounts: credentials_ok=credentials_ok and auth_mode=='password' and bool(cfg.get('admin_token'))
-            return bool(credentials_ok and cfg["session_secret"] and cfg["core_token"] and
+            return bool(credentials_ok and (not cfg.get('shared_auth_state') or auth_mode=='password') and cfg["session_secret"] and cfg["core_token"] and
                         parsed.scheme == "https" and parsed.hostname and not any((parsed.username, parsed.password, parsed.query, parsed.fragment)) and
                         (transport is not None or Path(cfg["core_ca"]).is_file()))
         except (KeyError, ValueError):
@@ -203,7 +206,8 @@ def create_app(config=None, transport=None):
 
     @app.get("/readyz")
     def ready():
-        return JSONResponse({"ready": configured()}, status_code=200 if configured() else 503)
+        ready=configured() and (password_auth is None or password_auth.state_store is None or password_auth.state_store.ready())
+        return JSONResponse({"ready": ready}, status_code=200 if ready else 503)
 
     @app.get("/api/session")
     def session(request: Request):
