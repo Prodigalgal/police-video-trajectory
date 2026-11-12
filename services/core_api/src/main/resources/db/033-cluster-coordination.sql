@@ -1,4 +1,4 @@
--- Application version: 0.36.0. Optional shared admission; no business data is altered.
+-- Application version: 0.37.0. Optional shared admission; no business data is altered.
 CREATE TABLE IF NOT EXISTS cluster_login_challenges (
  challenge_id text PRIMARY KEY CHECK(challenge_id ~ '^[A-Za-z0-9_-]{32,64}$'),
  payload jsonb NOT NULL CHECK(jsonb_typeof(payload)='object' AND octet_length(payload::text)<=2048),

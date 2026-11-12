@@ -1,8 +1,8 @@
 {
   "namespace": "police-video",
-  "version": "0.36.0",
-  "core_image": "example/police-video-core:20261111-v0.36.0-offline-sourcecommit",
-  "runtime_image": "example/police-video-runtime:20261111-v0.36.0-offline-sourcecommit",
+  "version": "0.37.0",
+  "core_image": "example/police-video-core:20261111-v0.37.0-offline-sourcecommit",
+  "runtime_image": "example/police-video-runtime:20261111-v0.37.0-offline-sourcecommit",
   "origin": "https://video.example.invalid",
   "media_claim": "video-media",
   "media_access_mode": "ReadWriteMany",

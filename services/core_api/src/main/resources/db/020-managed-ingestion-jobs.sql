@@ -1,4 +1,4 @@
--- Application version: 0.36.0. Managed source tasks; inference remains in existing queues.
+-- Application version: 0.37.0. Managed source tasks; inference remains in existing queues.
 CREATE TABLE IF NOT EXISTS ingestion_batches (
  batch_id uuid PRIMARY KEY,request_id uuid NOT NULL UNIQUE,actor_id text NOT NULL,
  request_sha256 text NOT NULL CHECK(request_sha256 ~ '^[a-f0-9]{64}$'),

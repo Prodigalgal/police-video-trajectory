@@ -1,0 +1,145 @@
+name: 离线 ARM64 镜像导出
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: 已完成的 main release.yml run ID，且该运行有发布摘要工件
+        required: true
+        type: string
+      image_tag:
+        description: release.yml 输出的不可变镜像 tag
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: offline-export-${{ inputs.release_run_id }}
+  cancel-in-progress: false
+jobs:
+  export:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - name: 校验成功的正式发布运行
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "release_run_id must be numeric" >&2; exit 2; }
+          [[ "$IMAGE_TAG" =~ ^[0-9]{8}-v([0-9]+\.[0-9]+\.[0-9]+)-ci-([a-f0-9]{12})$ ]] || {
+            echo "image_tag format is invalid" >&2
+            exit 2
+          }
+          version="${BASH_REMATCH[1]}"
+          tagged_sha="${BASH_REMATCH[2]}"
+          release_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")"
+          release_workflow="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml")"
+          [[ "$(jq -r '.workflow_id' <<< "$release_run")" == "$(jq -r '.id' <<< "$release_workflow")" ]] || {
+            echo "run ID does not belong to release.yml" >&2
+            exit 2
+          }
+          [[ "$(jq -r '.event' <<< "$release_run")" == "push" ]] || {
+            echo "release run must originate from a push" >&2
+            exit 2
+          }
+          [[ "$(jq -r '.head_branch' <<< "$release_run")" == "main" ]] || {
+            echo "release run must target main" >&2
+            exit 2
+          }
+          [[ "$(jq -r '.status' <<< "$release_run")" == "completed" ]] || {
+            echo "release run is not complete" >&2
+            exit 2
+          }
+          [[ "$(jq -r '.head_repository.full_name // empty' <<< "$release_run")" == "$GITHUB_REPOSITORY" ]] || {
+            echo "release run repository mismatch" >&2
+            exit 2
+          }
+          source_sha="$(jq -r '.head_sha' <<< "$release_run")"
+          [[ "$source_sha" =~ ^[a-f0-9]{40}$ ]] || { echo "invalid source SHA" >&2; exit 2; }
+          [[ "$tagged_sha" == "${source_sha:0:12}" ]] || {
+            echo "image tag SHA does not match the successful release run" >&2
+            exit 2
+          }
+          {
+            echo "version=$version"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ steps.release.outputs.source_sha }}
+          persist-credentials: false
+      - name: 校验源版本契约
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$(tr -d '\r\n' < VERSION)" == "$EXPECTED_VERSION" ]] || {
+            echo "source VERSION differs from release tag" >&2
+            exit 2
+          }
+      - name: 下载并核验同一发布运行的镜像摘要
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+          EXPECTED_SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE }}
+          METADATA_DIR: ${{ runner.temp }}/release-metadata
+        run: |
+          set -euo pipefail
+          gh run download "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name police-video-release-metadata --dir "$METADATA_DIR"
+          metadata="$METADATA_DIR/release-image-metadata.json"
+          [[ -s "$metadata" ]] || { echo "Release metadata artifact is missing." >&2; exit 2; }
+          jq -e \
+            --arg version "$EXPECTED_VERSION" \
+            --arg sha "$EXPECTED_SOURCE_SHA" \
+            --arg run_id "$RELEASE_RUN_ID" \
+            --arg tag "$IMAGE_TAG" \
+            --arg ns "$REGISTRY_NAMESPACE" \
+            '.schema_version == "offline-release-image-metadata-v1" and
+             .application_version == $version and
+             .source_commit == $sha and
+             .github_actions_run_id == $run_id and
+             .image_tag == $tag and
+             .platform == "linux/arm64" and
+             ([.images[].name] | sort) == ["core", "runtime"] and
+             ([.images[] | select(.name == "core") | .reference] == [$ns + "/police-video-core:" + $tag]) and
+             ([.images[] | select(.name == "runtime") | .reference] == [$ns + "/police-video-runtime:" + $tag])' \
+            "$metadata" > /dev/null
+          core_digest="$(jq -er '.images[] | select(.name == "core") | .registry_digest' "$metadata")"
+          runtime_digest="$(jq -er '.images[] | select(.name == "runtime") | .registry_digest' "$metadata")"
+          [[ "$core_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "Invalid Core digest." >&2; exit 2; }
+          [[ "$runtime_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "Invalid Runtime digest." >&2; exit 2; }
+          echo "core_digest=$core_digest" >> "$GITHUB_OUTPUT"
+          echo "runtime_digest=$runtime_digest" >> "$GITHUB_OUTPUT"
+      - name: 登录 Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: 生成离线 ARM64 镜像包
+        env:
+          APP_VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE }}
+          EXPECTED_CORE_DIGEST: ${{ steps.metadata.outputs.core_digest }}
+          EXPECTED_RUNTIME_DIGEST: ${{ steps.metadata.outputs.runtime_digest }}
+          OUT_DIR: ${{ runner.temp }}/offline-bundle
+        run: bash ci/package-offline-images.sh
+      - name: 上传离线镜像包
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: police-video-offline-${{ steps.release.outputs.version }}-${{ inputs.release_run_id }}
+          path: ${{ runner.temp }}/offline-bundle/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

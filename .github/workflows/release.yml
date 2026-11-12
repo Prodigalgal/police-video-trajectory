@@ -12,7 +12,7 @@ concurrency:
 jobs:
   application:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -46,7 +46,7 @@ jobs:
           /tmp/gradle-9.1.0/bin/gradle -p services/core_api --no-daemon test bootJar
           node --test --test-reporter=dot web/tests/*.test.mjs
           /tmp/contracts/bin/python -m pytest -q tests/test_web_gateway.py tests/test_live_media.py tests/test_keyword_search.py tests/test_password_auth.py tests/test_ai_gateway.py tests/test_gateway_json_mode.py tests/test_simple_accounts.py tests/test_clue_api.py tests/test_recorded_media_api.py tests/test_processing_plugins.py tests/test_recording_review_api.py tests/test_capture_handoff.py tests/test_usability_api.py tests/test_usability_gitops.py tests/test_managed_models.py tests/test_provider_catalog.py tests/test_midstream_gitops.py tests/test_inference_receipt.py tests/test_processing_trace_api.py tests/test_reviewed_plate_status_api.py tests/test_evidence_package_preview_api.py
-          /tmp/contracts/bin/python -m pytest -q tests/test_recording_windows.py tests/test_session_media.py tests/test_recording_control.py tests/test_pipeline_features_api.py tests/test_local_models_api.py tests/test_optional_exports.py
+          /tmp/contracts/bin/python -m pytest -q tests/test_recording_windows.py tests/test_session_media.py tests/test_recording_control.py tests/test_pipeline_features_api.py tests/test_local_models_api.py tests/test_optional_exports.py tests/test_offline_image_delivery.py
           npm run build --prefix web
           python3 deploy/check-version-contract.py --web-dist --jar "services/core_api/build/libs/police-video-core-api-$(cat VERSION).jar"
       - name: 确定不可变版本
@@ -69,6 +69,28 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        if: github.event_name == 'pull_request'
+      - name: PR 构建 Core ARM64 镜像
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: ci/Dockerfile.core
+          push: false
+          platforms: linux/arm64
+          tags: local/police-video-core:${{ steps.release.outputs.tag }}
+          build-args: APP_VERSION=${{ steps.release.outputs.version }}
+      - name: PR 构建 Python 与 Web ARM64 镜像
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: ci/Dockerfile.runtime
+          push: false
+          platforms: linux/arm64
+          tags: local/police-video-runtime:${{ steps.release.outputs.tag }}
+          build-args: APP_VERSION=${{ steps.release.outputs.version }}
       - name: 构建并发布 Core
         id: core
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -95,6 +117,70 @@ jobs:
           build-args: APP_VERSION=${{ steps.release.outputs.version }}
           provenance: mode=max
           sbom: true
+      - name: 生成离线导出的发布摘要
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          IMAGE_TAG: ${{ steps.release.outputs.tag }}
+          REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          SOURCE_SHA: ${{ github.sha }}
+          CORE_DIGEST: ${{ steps.core.outputs.digest }}
+          RUNTIME_DIGEST: ${{ steps.runtime.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$CORE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$RUNTIME_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          jq -n \
+            --arg version "$VERSION" \
+            --arg image_tag "$IMAGE_TAG" \
+            --arg run_id "$RELEASE_RUN_ID" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg platform "linux/arm64" \
+            --arg namespace "$REGISTRY_NAMESPACE" \
+            --arg core_digest "$CORE_DIGEST" \
+            --arg runtime_digest "$RUNTIME_DIGEST" \
+            '{
+              schema_version: "offline-release-image-metadata-v1",
+              application_version: $version,
+              image_tag: $image_tag,
+              github_actions_run_id: $run_id,
+              source_commit: $source_sha,
+              platform: $platform,
+              images: [
+                {name: "core", reference: ($namespace + "/police-video-core:" + $image_tag), registry_digest: $core_digest},
+                {name: "runtime", reference: ($namespace + "/police-video-runtime:" + $image_tag), registry_digest: $runtime_digest}
+              ]
+            }' > release-image-metadata.json
+      - name: 保存不可变发布摘要
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: police-video-release-metadata
+          path: release-image-metadata.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: 记录离线导出定位信息
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          IMAGE_TAG: ${{ steps.release.outputs.tag }}
+          REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE }}
+          CORE_DIGEST: ${{ steps.core.outputs.digest }}
+          RUNTIME_DIGEST: ${{ steps.runtime.outputs.digest }}
+        run: |
+          {
+            echo "## 离线镜像导出定位"
+            echo
+            echo "- 应用版本：$VERSION"
+            echo "- 镜像 tag：$IMAGE_TAG"
+            echo "- 源提交：$GITHUB_SHA"
+            echo "- GitHub Actions run ID：$GITHUB_RUN_ID"
+            echo "- Core：$REGISTRY_NAMESPACE/police-video-core@$CORE_DIGEST"
+            echo "- Runtime：$REGISTRY_NAMESPACE/police-video-runtime@$RUNTIME_DIGEST"
+            echo "- 后续通过「离线 ARM64 镜像导出」workflow_dispatch 下载归档。"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: 回写私有 GitOps
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
