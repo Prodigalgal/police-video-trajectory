@@ -20,7 +20,7 @@ async def encode(settings,job):
     try:
         process=await asyncio.create_subprocess_exec(sys.executable,'-c',entry,
             '--recordings',str(settings.archive_dir),'--store',str(settings.media_clip_dir),'--bytes',str(settings.media_clip_bytes),
-            '--entries',str(settings.media_clip_entries),'--live-recordings',str(getattr(settings,'live_recording_dir','/recordings-live')),
+            '--entries',str(settings.media_clip_entries),
             stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
     except OSError:return {'error_code':'media_worker_error'}
     async def collect():
@@ -70,7 +70,7 @@ async def media_slot(settings,core,slot,stop):
     worker=settings.worker_id[:60]+f'-media-{slot}';timing=replace(settings,analysis_job_timeout_seconds=settings.media_job_timeout_seconds)
     while not stop.is_set():
         try:
-            claimed_at=asyncio.get_running_loop().time();response=await core.post(ROUTE+'/claim',{'workerId':worker,'leaseSeconds':settings.analysis_lease_seconds,'inputKinds':['archive','session']})
+            claimed_at=asyncio.get_running_loop().time();response=await core.post(ROUTE+'/claim',{'workerId':worker,'leaseSeconds':settings.analysis_lease_seconds,'inputKinds':['archive']})
             job=response.get('job')
             if not job:await wait_for_poll(stop);continue
             validate_job(job)

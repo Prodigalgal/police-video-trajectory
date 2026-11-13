@@ -1,4 +1,4 @@
--- Application version: 0.37.0. Session inputs preserve native provenance and existing archive v1.
+-- Application version: 1.0.0. Session inputs preserve native provenance and existing archive v1.
 ALTER TABLE media_production_jobs ADD COLUMN IF NOT EXISTS input_kind text NOT NULL DEFAULT 'archive';
 ALTER TABLE media_production_jobs ADD COLUMN IF NOT EXISTS input_descriptor jsonb;
 ALTER TABLE media_production_jobs DROP CONSTRAINT IF EXISTS media_production_jobs_profile_version_check;

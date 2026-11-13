@@ -13,19 +13,18 @@ import java.util.*;
 public class ProcessingTraceResources {
     private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(ProcessingTraceResources.class);
     private static final int MAX_OBSERVATIONS=100,BATCH_SIZE=25,MAX_DOCUMENT_BYTES=128*1024;
-    private final JdbcTemplate db;private final ObservationIndexReader index;private final FrameRecordings recordings;
-    public ProcessingTraceResources(JdbcTemplate db,ObservationIndexReader index,FrameRecordings recordings){this.db=db;this.index=index;this.recordings=recordings;}
-    private record Snapshot(List<Map<String,Object>> observations,List<Map<String,Object>> recording,List<Map<String,Object>> source){}
+    private final JdbcTemplate db;private final ObservationIndexReader index;
+    public ProcessingTraceResources(JdbcTemplate db,ObservationIndexReader index){this.db=db;this.index=index;}
+    private record Snapshot(List<Map<String,Object>> observations,List<Map<String,Object>> source){}
     private Snapshot snapshot(UUID frame){
         var observations=db.queryForList("SELECT o.observation_id,o.record_version,o.deleted,i.document::text AS document FROM observations o LEFT JOIN index_outbox i ON i.observation_id=o.observation_id AND i.record_version=o.record_version WHERE o.frame_id=? ORDER BY o.observation_id LIMIT 101",frame);
-        var recording=db.queryForList("SELECT l.segment_id,l.seek_offset_ms,l.payload_sha256,l.packet_sha256,s.manifest_sha256 FROM frame_recording_links l JOIN stream_recording_segments s USING(segment_id) WHERE l.frame_id=?",frame);
         var source=db.queryForList("SELECT t.source_id,s.camera_id,s.source_ref,s.source_type,s.source_time_origin FROM processing_tasks t JOIN sources s USING(source_id) WHERE t.task_id IN(SELECT task_id FROM frames WHERE frame_id=? UNION SELECT task_id FROM capture_outbox WHERE frame_id=?)",frame,frame);
-        return new Snapshot(observations,recording,source);
+        return new Snapshot(observations,source);
     }
     public List<Map<String,Object>> verify(UUID frame){
         var before=snapshot(frame);
         if(before.source().size()!=1)throw new InputRejected(409,"trace_source_changed");
-        var checks=List.of(indexCheck(before.observations()),recordingCheck(frame));
+        var checks=List.of(indexCheck(before.observations()));
         if(!before.equals(snapshot(frame)))throw new InputRejected(409,"trace_source_changed");
         return checks;
     }
@@ -71,15 +70,6 @@ public class ProcessingTraceResources {
             if(version.longValue()!=expectedVersion.longValue()||version.doubleValue()!=version.longValue())return "changed";
             return CanonicalJson.encode(projection,MAX_DOCUMENT_BYTES).sha256().equals(CanonicalJson.encode(document,MAX_DOCUMENT_BYTES).sha256())?"matched":"changed";
         }catch(IllegalArgumentException failure){return "unavailable";}
-    }
-    private Map<String,Object> recordingCheck(UUID frame){
-        try{
-            var video=recordings.playback(frame,true);
-            if(video.isEmpty())return check("recording_file","missing",Map.of());
-            return check("recording_file","matched",Map.of("recording_id",video.get().segmentId().toString(),"manifest_sha256",video.get().manifestSha256(),"bytes",video.get().bytes()));
-        }catch(InputRejected failure){
-            return check("recording_file",failure.status==409?"changed":"unavailable",Map.of("reason",failure.code));
-        }
     }
     private static Map<String,Object> check(String name,String state,Map<String,Object> details){return Map.of("name",name,"state",state,"details",details);}
 }

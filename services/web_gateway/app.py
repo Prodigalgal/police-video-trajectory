@@ -67,7 +67,6 @@ def create_app(config=None, transport=None):
         "exports":os.getenv("WEB_EXPORTS_INSTALLED",os.getenv("WEB_EXPORTS_ENABLED","false"))=="true",
         "appearance":os.getenv("WEB_APPEARANCE_ENABLED","false")=="true",
         "live_view":os.getenv("WEB_LIVE_VIEW_ENABLED","false")=="true",
-        "recording_review":os.getenv("WEB_RECORDING_REVIEW_ENABLED","false")=="true",
         "processing_trace":os.getenv("WEB_PROCESSING_TRACE_ENABLED","false")=="true",
         "live_media_url":os.getenv("WEB_LIVE_MEDIA_URL",""),
         "live_media_ca":os.getenv("WEB_LIVE_MEDIA_CA_FILE",""),
@@ -395,39 +394,6 @@ def create_app(config=None, transport=None):
         except httpx.HTTPError:
             raise HTTPException(503, "关键帧服务暂不可用") from None
 
-    @app.get("/api/v1/frames/{frame_id}/archive")
-    async def archive(frame_id: UUID, request: Request):
-        if not authenticated(request):
-            raise HTTPException(401, "请先登录")
-        requested_range = request.headers.get("range")
-        if requested_range and (len(requested_range) > 100 or not re.fullmatch(r"bytes=\d*-\d*", requested_range)):
-            raise HTTPException(416, "录像范围无效")
-        headers = {"Authorization": "Bearer " + cfg["core_token"]}
-        if requested_range:
-            headers["Range"] = requested_range
-        try:
-            upstream_request = request.app.state.http.build_request("GET", cfg["core_url"].rstrip("/") + f"/api/v1/frames/{frame_id}/archive", headers=headers)
-            upstream = await request.app.state.http.send(upstream_request, stream=True)
-            if upstream.status_code not in (200, 206):
-                status = upstream.status_code
-                await upstream.aclose()
-                if status in (404, 416):
-                    raise HTTPException(status, "录像不可用")
-                raise HTTPException(502, "录像服务暂不可用")
-            response_headers = {"Accept-Ranges": "bytes"}
-            for name in ("content-length", "content-range"):
-                if name in upstream.headers:
-                    response_headers[name] = upstream.headers[name]
-            async def chunks():
-                try:
-                    async for chunk in upstream.aiter_bytes():
-                        yield chunk
-                finally:
-                    await upstream.aclose()
-            return StreamingResponse(chunks(), status_code=upstream.status_code, headers=response_headers, media_type="video/mp4")
-        except httpx.HTTPError:
-            raise HTTPException(503, "录像服务暂不可用") from None
-
     from .admin_api import mount_admin
     mount_admin(app,cfg,authenticated,origin_ok)
     from .clue_api import mount_clues
@@ -454,8 +420,6 @@ def create_app(config=None, transport=None):
     mount_appearance(app,cfg,authenticated,origin_ok)
     from .live_api import mount_live
     mount_live(app,cfg,authenticated)
-    from .recording_review_api import mount_recording_review
-    mount_recording_review(app,cfg,authenticated,origin_ok)
     from .processing_trace_api import mount_processing_trace
     mount_processing_trace(app,cfg,authenticated,origin_ok)
     from .pipeline_features_api import mount_pipeline_features
@@ -476,7 +440,6 @@ def create_app(config=None, transport=None):
         if directory and cfg.get('exports'):result['exports']=True
         if directory and cfg.get('appearance'):result['appearance']=True
         if cfg.get('live_view'):result['live_view']=True
-        if directory and cfg.get('recording_review'):result['recording_review']=True
         if directory and cfg.get('processing_trace'):result['processing_trace']=True
         return result
 

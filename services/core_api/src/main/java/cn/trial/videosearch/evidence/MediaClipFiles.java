@@ -14,7 +14,6 @@ import java.util.*;
 /** Fixed names under a separate media root. No caller-provided file paths. */
 @Service
 public class MediaClipFiles {
-    public static final String SESSION_SCHEMA="recorded-session-clip-v1";
     public enum Mode {MANIFEST,VIDEO,SAMPLE}
     public static final long MAX_BYTES=64L*1024*1024;
     private static final ObjectMapper JSON=new ObjectMapper();
@@ -28,24 +27,19 @@ public class MediaClipFiles {
             Path folder=root.resolve(id.toString().replace("-",""));
             if(Files.isSymbolicLink(root)||Files.isSymbolicLink(folder)||!Files.isDirectory(folder,LinkOption.NOFOLLOW_LINKS))throw rejected("media_unavailable");
             byte[] raw=read(folder.resolve("manifest.json"),64*1024);var manifest=JSON.readValue(raw,Map.class);
-            boolean session=session(manifest);
-            var names=new ArrayList<>(List.of("schema_version","clip_id","source_id","camera_id","source","requested_start_ms","requested_end_ms","sample_period_ms","quality","video","samples","actual_start_us","actual_end_us","decoded_frames","max_decoded_gap_us","producer_version"));if(session)names.add("session_input");keys(manifest,names.toArray(String[]::new));text(manifest,"producer_version");
+            var names=new ArrayList<>(List.of("schema_version","clip_id","source_id","camera_id","source","requested_start_ms","requested_end_ms","sample_period_ms","quality","video","samples","actual_start_us","actual_end_us","decoded_frames","max_decoded_gap_us","producer_version"));keys(manifest,names.toArray(String[]::new));text(manifest,"producer_version");
             var encoded=CanonicalJson.encode(manifest,64*1024);
-            if(!encoded.sha256().equals(expected)||!(session||"recorded-media-clip-v1".equals(manifest.get("schema_version")))||!id.toString().equals(manifest.get("clip_id")))throw rejected("media_manifest_changed");
-            String camera=text(manifest,"camera_id");if(!camera.matches(session?"[A-Za-z0-9_-]{1,100}":"recording-0[1-4]"))throw rejected("media_manifest_changed");
+            if(!encoded.sha256().equals(expected)||!"recorded-media-clip-v1".equals(manifest.get("schema_version"))||!id.toString().equals(manifest.get("clip_id")))throw rejected("media_manifest_changed");
+            String camera=text(manifest,"camera_id");if(!camera.matches("recording-0[1-4]"))throw rejected("media_manifest_changed");
             UUID source=UUID.fromString(text(manifest,"source_id"));Map<String,Object> original=object(manifest,"source"),video=object(manifest,"video"),quality=object(manifest,"quality");
             keys(original,"bytes","sha256");keys(video,"bytes","sha256","width","height","codec","frame_offsets_ms");
             String sourceSha=digest(original);long sourceBytes=number(original,"bytes",1,8L*1024*1024*1024);
-            long maxWindowMs=session?NativeRecordingFormat.CONTEXT.maxDurationUs/1000:30000;
+            long maxWindowMs=30000;
             long start=number(manifest,"requested_start_ms",0,Long.MAX_VALUE-maxWindowMs),end=number(manifest,"requested_end_ms",start+2000,start+maxWindowMs);
-            if(session){
-                var input=object(manifest,"session_input");SessionMediaInputs.validateDescriptor(input);
-                if(!source.toString().equals(input.get("source_id"))||!camera.equals(input.get("camera_id"))||!sourceSha.equals(input.get("source_sha256"))||sourceBytes!=((Number)input.get("source_bytes")).longValue()||start!=0||end!=SessionMediaInputs.endMs(input))throw rejected("media_manifest_changed");
-            }
             long first=number(manifest,"actual_start_us",Math.multiplyExact(start,1000),Math.addExact(Math.multiplyExact(start,1000),250000));
             long last=number(manifest,"actual_end_us",Math.max(first+1,Math.multiplyExact(end,1000)-250000),Math.multiplyExact(end,1000)-1);
             number(manifest,"decoded_frames",2,18000);number(manifest,"max_decoded_gap_us",1,250000);number(manifest,"sample_period_ms",1000,1000);
-            if(!quality.equals(Map.of("window_complete",true,"source_clock",session?"same_session_segment_relative":"recording_relative","absolute_time_verified",false,"identity_association_verified",false,"inference_invoked",false)))throw rejected("media_manifest_changed");
+            if(!quality.equals(Map.of("window_complete",true,"source_clock","recording_relative","absolute_time_verified",false,"identity_association_verified",false,"inference_invoked",false)))throw rejected("media_manifest_changed");
             long width=number(video,"width",2,1280),height=number(video,"height",2,20000),videoBytes=number(video,"bytes",1,MAX_BYTES);String videoSha=digest(video);
             if(width%2!=0||height%2!=0||width*height>50000000||!"h264".equals(video.get("codec")))throw rejected("media_manifest_changed");
             List<?> positions=list(video,"frame_offsets_ms",2,(int)(maxWindowMs/100+1));long previous=-1;
@@ -80,7 +74,6 @@ public class MediaClipFiles {
         catch(IOException error){throw new InputRejected(422,"media_evidence_unavailable");}
         catch(RuntimeException error){throw rejected("media_manifest_changed");}
     }
-    public static boolean session(Map<String,Object> manifest){return SESSION_SCHEMA.equals(manifest.get("schema_version"));}
     public void verifyRecording(Assets assets){
         try{
             if(Files.isSymbolicLink(recordings))throw rejected("media_source_changed");

@@ -28,10 +28,6 @@ public class MediaJobController {
     }
     @PostMapping("/api/v1/media-jobs")
     public Mono<ResponseEntity<Map<String,Object>>> create(@RequestHeader(value="Authorization",required=false)String auth,@RequestBody MediaJobs.Create body){return call(auth,false,()->jobs.create(body));}
-    @PostMapping("/api/v1/frames/{frameId}/media-jobs")
-    public Mono<ResponseEntity<Map<String,Object>>> createSession(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID frameId,@RequestBody MediaJobs.SessionCreate body){return call(auth,false,()->jobs.createSession(frameId,body));}
-    @GetMapping("/api/v1/frames/{frameId}/media-jobs")
-    public Mono<ResponseEntity<Map<String,Object>>> frameJobs(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID frameId,@RequestParam(defaultValue="10")int limit,@RequestParam(required=false)UUID after){return call(auth,false,()->jobs.listForFrame(frameId,limit,after));}
     @GetMapping("/api/v1/media-jobs")
     public Mono<ResponseEntity<Map<String,Object>>> list(@RequestHeader(value="Authorization",required=false)String auth,@RequestParam(name="camera_id")String camera,@RequestParam(defaultValue="20")int limit,@RequestParam(required=false)UUID after){return call(auth,false,()->jobs.list(camera,limit,after));}
     @GetMapping("/api/v1/media-jobs/{id}")

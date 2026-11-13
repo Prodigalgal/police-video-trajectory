@@ -35,8 +35,8 @@ public class PipelineFeatures {
         result.put("version",row.get("version"));result.put("updated_at",((Timestamp)row.get("updated_at")).toInstant().toString());return result;
     }
     public Map<String,Object> snapshot(){
-        var rows=db.queryForList("SELECT feature_key,enabled,plugin_key,parameters::text AS parameters,version,updated_at FROM pipeline_features WHERE feature_key IN (?,?) ORDER BY feature_key",PipelineFeatureRegistry.RECORDING,PipelineFeatureRegistry.EXPORT);
-        if(rows.size()!=2)throw new AdminService.Rejected(503,"pipeline_features_unavailable");
+        var rows=db.queryForList("SELECT feature_key,enabled,plugin_key,parameters::text AS parameters,version,updated_at FROM pipeline_features WHERE feature_key IN (?) ORDER BY feature_key",PipelineFeatureRegistry.EXPORT);
+        if(rows.size()!=1)throw new AdminService.Rejected(503,"pipeline_features_unavailable");
         return Map.of("schema_version","pipeline-features-v1","lease_seconds",15,"features",rows.stream().map(this::view).toList());
     }
     @Transactional(timeout=10)

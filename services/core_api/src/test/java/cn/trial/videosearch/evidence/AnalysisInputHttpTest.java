@@ -32,7 +32,7 @@ class AnalysisInputHttpTest {
     @Test void workerImageContractReturnsOnlyTheRequestedVerifiedBytes(){
         UUID input=UUID.randomUUID(),frame=UUID.randomUUID();
         when(inputs.verify(input,frame)).thenReturn(new AnalysisInputs.Verified(Map.of(),"{}","b".repeat(64),new EvidenceFiles.FrameFile(new byte[]{1,2,3},1280,720,"a".repeat(64))));
-        var worker=WebTestClient.bindToController(new WorkerController(null,null,null,null,null,inputs,null,null,"worker-token")).build();
+        var worker=WebTestClient.bindToController(new WorkerController(null,null,null,null,null,inputs,null,"worker-token")).build();
         worker.get().uri("/internal/v1/analysis-inputs/"+input+"/frames/"+frame+"/image").header("Authorization","Bearer worker-token").exchange()
             .expectStatus().isOk().expectHeader().contentType(MediaType.IMAGE_JPEG).expectHeader().valueEquals("X-Content-SHA256","a".repeat(64)).expectBody(byte[].class).isEqualTo(new byte[]{1,2,3});
         worker.get().uri("/internal/v1/analysis-inputs/"+input+"/manifest").header("Authorization","Bearer service-token").exchange().expectStatus().isUnauthorized();

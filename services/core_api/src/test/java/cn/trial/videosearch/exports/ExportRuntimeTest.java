@@ -56,19 +56,21 @@ class ExportRuntimeTest {
     }
     @Test void databaseSourceFenceRejectsChangedBindingsWithoutFileIO(){
         var db=mock(JdbcTemplate.class);var images=mock(cn.trial.videosearch.evidence.EvidenceFiles.class);
-        var recordings=mock(cn.trial.videosearch.evidence.FrameRecordings.class);var clips=mock(cn.trial.videosearch.evidence.MediaClips.class);
-        var sessions=mock(cn.trial.videosearch.evidence.SessionMediaInputs.class);var assets=new ExportAssets(db,images,recordings,clips,sessions);
+        var clips=mock(cn.trial.videosearch.evidence.MediaClips.class);
+        var assets=new ExportAssets(db,images,clips);
         UUID frame=UUID.randomUUID();String identity=UUID.randomUUID().toString();
-        var asset=Map.<String,Object>of("kind","native","identity",identity,"manifest_sha256","a".repeat(64));
+        var asset=Map.<String,Object>of("kind","normalized","identity",identity,"manifest_sha256","a".repeat(64));
         var facts=new LinkedHashMap<String,Object>(Map.of("bound",true,"identity",identity,"manifest_sha256","a".repeat(64),"source_pts_us",100));
-        when(db.queryForList(contains("AS facts"),eq(frame))).thenAnswer(invocation->List.of(Map.of("facts",cn.trial.videosearch.support.CanonicalJson.encode(facts,4096).payload())));
+        when(db.queryForList(contains("AS facts"),eq(UUID.fromString(identity)),eq(frame))).thenAnswer(invocation->List.of(Map.of("facts",cn.trial.videosearch.support.CanonicalJson.encode(facts,4096).payload())));
         String signature=assets.databaseSignature(asset,frame);
+        var legacyNative=Map.<String,Object>of("kind","native","identity",identity,"manifest_sha256","a".repeat(64));
+        assertEquals("export_source_changed",assertThrows(InputRejected.class,()->assets.databaseSignature(legacyNative,frame)).code);
         var binding=Map.<String,Object>of("frame_id",frame.toString(),"database_sha256",signature);
         assets.verifyDatabaseBinding(asset,binding);facts.put("source_pts_us",101);
         assertEquals("export_source_changed",assertThrows(InputRejected.class,()->assets.verifyDatabaseBinding(asset,binding)).code);
         assets.verifyDatabaseBinding(asset,Map.of("frame_id",frame.toString()));
         facts.put("bound",false);
         assertThrows(InputRejected.class,()->assets.verifyDatabaseBinding(asset,Map.of("frame_id",frame.toString())));
-        verifyNoInteractions(images,recordings,clips,sessions);
+        verifyNoInteractions(images,clips);
     }
 }

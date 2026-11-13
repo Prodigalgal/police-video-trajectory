@@ -1,4 +1,4 @@
--- Application version: 0.37.0. Specialist consumption is independent of main analysis.
+-- Application version: 1.0.0. Specialist consumption is independent of main analysis.
 ALTER TABLE processing_controls ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 1;
 INSERT INTO processing_controls(control_key,enabled) VALUES('specialist_claims',false) ON CONFLICT DO NOTHING;
 ALTER TABLE specialist_plate_reviews ALTER COLUMN event_id DROP NOT NULL;

@@ -37,7 +37,7 @@ class ModuleQueueTest {
         assertThrows(IllegalArgumentException.class,()->policy.kindLimit("unknown"));
     }
     @Test void workerAuthenticationPrecedesModuleAccess(){
-        var modules=mock(ModuleQueue.class);var controller=new WorkerController(null,null,null,null,modules,null,null,null,"worker-token");
+        var modules=mock(ModuleQueue.class);var controller=new WorkerController(null,null,null,null,modules,null,null,"worker-token");
         assertEquals(401,controller.claimModule("Bearer wrong",new WorkerController.ModuleClaim("worker",120,null)).block().getStatusCode().value());
         assertEquals(401,controller.completeModule(null,new ModuleQueue.Completion(UUID.randomUUID(),"worker",1,UUID.randomUUID(),"a".repeat(64))).block().getStatusCode().value());
         verifyNoInteractions(modules);

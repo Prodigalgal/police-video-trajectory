@@ -98,7 +98,7 @@ class AnalysisInputsTest {
         verifyNoInteractions(evidence,files);
     }
     @Test void workerInputEndpointsRequireTheWorkerToken(){
-        var service=mock(AnalysisInputs.class);var controller=new WorkerController(null,null,null,null,null,service,null,null,"worker-token");
+        var service=mock(AnalysisInputs.class);var controller=new WorkerController(null,null,null,null,null,service,null,"worker-token");
         assertEquals(401,controller.inputManifest("Bearer admin-token",UUID.randomUUID()).block().getStatusCode().value());
         assertEquals(401,controller.inputImage(null,UUID.randomUUID(),frame).block().getStatusCode().value());
         verifyNoInteractions(service);

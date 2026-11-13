@@ -85,11 +85,10 @@ class SceneFrame:
     relative_media_ms: int
     selection_metrics: dict | None = None
     motion_context: bytes | None = None
-    recording: dict | None = None
 
 
 class SceneReader:
-    def __init__(self, settings, reference, source_type, *, detector=None, duration_seconds=None, selected_sink=None,max_media_seconds=None,start_media_seconds=0,scene_observer=None,recording_context=None,archive_progress=None,emit_after_ms=None,end_media_ms=None):
+    def __init__(self, settings, reference, source_type, *, detector=None, duration_seconds=None, selected_sink=None,max_media_seconds=None,start_media_seconds=0,scene_observer=None,archive_progress=None,emit_after_ms=None,end_media_ms=None):
         if source_type not in {'rtsp', 'archive'}:
             raise ValueError('unknown scene source type')
         prefix = 'simulator:' if source_type == 'rtsp' else 'archive:'
@@ -97,7 +96,6 @@ class SceneReader:
         if reference != prefix + camera or camera not in {f'recording-0{i}' for i in range(1, 7)}:
             raise ValueError('unknown scene camera')
         self.settings, self.reference, self.source_type = settings, reference, source_type
-        self.recording_context=recording_context
         self.camera = camera
         self.roi = settings.scene_rois().get(camera, [0, 0, 1, 1])
         self.detector = (detector if settings.scene_policy=='activity_v1' else detector or

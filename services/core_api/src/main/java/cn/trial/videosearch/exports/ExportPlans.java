@@ -23,8 +23,8 @@ public class ExportPlans {
         long frames=rows(current.get("nodes")).stream().filter(node->Boolean.TRUE.equals(node.get("available"))&&node.get("frame_id")!=null).map(node->node.get("frame_id")).distinct().count();
         return Map.of("collection_id",id.toString(),"collection_revision",revision,"parts",Math.max(1,(frames+1)/2),"frame_count",frames,"frames_per_part",2,"max_artifact_bytes",MAX_ARTIFACT);
     }
-    public CanonicalJson.Encoded prepare(UUID id,long revision,int part,boolean nativeVideo,boolean normalized,String actor)throws Exception{
-        if(!nativeVideo&&!normalized)throw new IllegalArgumentException("Select a video attachment kind");
+    public CanonicalJson.Encoded prepare(UUID id,long revision,int part,boolean normalized,String actor)throws Exception{
+        if(!normalized)throw new IllegalArgumentException("Select a video attachment kind");
         var base=decode((String)images.prepareWindow(id,revision,part,actor,2).get("manifest_payload"));
         var selected=rows(base.get("images"));var assets=new LinkedHashMap<String,Map<String,Object>>();var sources=new LinkedHashMap<String,Map<String,Object>>();
         if(selected.isEmpty())throw new InputRejected(422,"export_empty");
@@ -34,7 +34,6 @@ public class ExportPlans {
         for(var image:selected){
             String frame=(String)image.get("frame_id"),key="image-"+frame;
             assets.put(key,ExportAssets.asset(key,"image",frame,frame,frame,((Number)image.get("bytes")).longValue(),(String)image.get("sha256"),null,(String)image.get("filename")));
-            if(nativeVideo){var original=media.nativeMedia(UUID.fromString(frame));if(original.isPresent())add(original.get(),assets,sources,bindings);else missing.add(Map.of("frame_id",frame,"kind","native","reason","no_registered_same_session_segment"));}
             if(normalized){var clip=clips.get(UUID.fromString(frame));if(clip!=null)add(media.normalizedMedia(UUID.fromString(frame),clip),assets,sources,bindings);else missing.add(Map.of("frame_id",frame,"kind","normalized","reason","no_verified_normalized_clip"));}
         }
         long total=assets.values().stream().mapToLong(asset->((Number)asset.get("bytes")).longValue()).sum();if(total>MAX_ASSETS)throw new InputRejected(409,"export_size_limit");

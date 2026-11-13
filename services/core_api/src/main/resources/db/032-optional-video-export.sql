@@ -1,4 +1,4 @@
--- Application version: 0.37.0. Export installation does not enable production.
+-- Application version: 1.0.0. Export installation does not enable production.
 INSERT INTO pipeline_features(feature_key,enabled,plugin_key,parameters)
 VALUES('evidence_export',false,'bound_video_package_v1','{}'::jsonb) ON CONFLICT DO NOTHING;
 ALTER TABLE evidence_exports DROP CONSTRAINT IF EXISTS evidence_exports_part_check;

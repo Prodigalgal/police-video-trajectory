@@ -44,29 +44,3 @@ async def test_durable_capture_ack_is_independent_of_optional_analysis_handoff(h
 def test_handoff_flag_rejects_ambiguous_configuration(monkeypatch):
     monkeypatch.setenv('CAPTURE_ANALYSIS_HANDOFF_ENABLED','disabled')
     with pytest.raises(ValueError,match='handoff'):Settings.from_env()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('namespace',[None,'b'*32])
-async def test_recording_recovery_keeps_its_namespace_scope_between_passes(monkeypatch,namespace):
-    from services.video_worker import live_recording_delivery as delivery
-    scanned=[];published=[];passes=0
-    frame,segment=str(uuid4()),str(uuid4());digest='a'*64
-    def pending(settings,selected):
-        scanned.append(selected)
-        return [('b'*32,(frame,segment,digest,1000,digest,digest))]
-    async def sleep(seconds):
-        nonlocal passes
-        passes+=1
-        if passes==2:raise asyncio.CancelledError()
-    class Core:
-        async def post(self,path,body):
-            published.append(body['namespace'])
-            return {'recorded':True,'frame_id':frame,'segment_id':segment,'manifest_sha256':digest}
-    monkeypatch.setattr(delivery,'pending',pending)
-    monkeypatch.setattr(delivery,'LiveStore',lambda root,scope:SimpleNamespace(attempted=lambda *args,**kwargs:None))
-    monkeypatch.setattr(delivery.asyncio,'sleep',sleep)
-    with pytest.raises(asyncio.CancelledError):
-        await delivery.publish_recordings(SimpleNamespace(live_recording_dir='unused'),Core(),namespace=namespace)
-    assert scanned==[namespace,namespace]
-    assert published==['b'*32,'b'*32]

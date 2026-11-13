@@ -70,7 +70,7 @@ def render(config):
         credential('VIDEO_ADMIN_TOKEN','admin-token'),credential('VIDEO_SEARCH_TOKEN','search-token'),credential('VIDEO_WORKER_TOKEN','worker-token'),credential('VIDEO_GATEWAY_TOKEN','gateway-token'),
         literal('VIDEO_GATEWAY_URL',gateway_url),literal('VIDEO_GATEWAY_CA','/gateway-ca/ca.crt'),literal('VIDEO_CLUSTER_COORDINATION_ENABLED','true'),
         literal('VIDEO_CLUSTER_MODEL_TOTAL',c['model_total']),literal('VIDEO_CLUSTER_MODEL_TEXT_RESERVED',c['text_reserved']),
-        literal('VIDEO_EVIDENCE_DIR','/media/evidence'),literal('VIDEO_ARCHIVE_DIR','/media/archives'),literal('VIDEO_MEDIA_CLIP_DIR','/media/clips'),literal('VIDEO_LIVE_RECORDING_DIR','/media/live'),
+        literal('VIDEO_EVIDENCE_DIR','/media/evidence'),literal('VIDEO_ARCHIVE_DIR','/media/archives'),literal('VIDEO_MEDIA_CLIP_DIR','/media/clips'),
         literal('VIDEO_CAPTURE_DISPATCHER_ENABLED','false'),literal('VIDEO_INDEXER_ENABLED','false'),literal('VIDEO_EXPORTS_INSTALLED','false'),literal('VIDEO_EXPORTS_ENABLED','false')]
     core=workload('core-api',c['core_image'],['java','-jar','/app/app.jar'],8444,core_env,
         [tls_mount(c['core_tls_secret']),{'name':'database-ca','secret':{'secretName':c['database_secret'],'items':[{'key':'ca.crt','path':'ca.crt'}]}},

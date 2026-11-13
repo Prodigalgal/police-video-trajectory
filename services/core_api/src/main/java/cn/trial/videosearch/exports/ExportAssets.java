@@ -13,14 +13,13 @@ public class ExportAssets {
     private static final tools.jackson.databind.ObjectMapper JSON=new tools.jackson.databind.ObjectMapper();
     public record Content(Path path,byte[] bytes,long size,String sha256,String mediaType){}
     public record Media(Map<String,Object> asset,Map<String,Object> source,Map<String,Object> binding){}
-    private final JdbcTemplate db;private final EvidenceFiles images;private final FrameRecordings recordings;
-    private final MediaClips clips;private final SessionMediaInputs sessions;
-    public ExportAssets(JdbcTemplate db,EvidenceFiles images,FrameRecordings recordings,MediaClips clips,SessionMediaInputs sessions){this.db=db;this.images=images;this.recordings=recordings;this.clips=clips;this.sessions=sessions;}
+    private final JdbcTemplate db;private final EvidenceFiles images;
+    private final MediaClips clips;
+    public ExportAssets(JdbcTemplate db,EvidenceFiles images,MediaClips clips){this.db=db;this.images=images;this.clips=clips;}
     @SuppressWarnings("unchecked") static Map<String,Object> object(Object value){if(!(value instanceof Map<?,?>))throw new InputRejected(409,"export_source_changed");return (Map<String,Object>)value;}
     public Map<UUID,UUID> normalizedCandidates(List<UUID> frames){
         if(frames.isEmpty())return Map.of();String slots=String.join(",",Collections.nCopies(frames.size(),"?"));
         var result=new HashMap<UUID,UUID>();
-        for(var row:db.queryForList("SELECT frame_id,clip_id FROM (SELECT m.frame_id,r.clip_id,row_number() OVER(PARTITION BY m.frame_id ORDER BY r.created_at DESC,r.clip_id) AS rank FROM media_job_frames m JOIN media_production_jobs j USING(job_id) JOIN recorded_media_clips r ON r.clip_id=j.job_id WHERE j.state='completed' AND m.frame_id IN ("+slots+")) candidates WHERE rank=1",frames.toArray()))result.put((UUID)row.get("frame_id"),(UUID)row.get("clip_id"));
         for(var row:db.queryForList("""
             SELECT frame_id,clip_id FROM (
               SELECT f.frame_id,r.clip_id,row_number() OVER(PARTITION BY f.frame_id ORDER BY r.created_at DESC,r.clip_id) AS rank
@@ -30,22 +29,13 @@ public class ExportAssets {
                 AND r.manifest->'source'->>'bytes'=p.source_snapshot->'file'->>'bytes'
                 AND f.media_offset_ms*1000 BETWEEN (r.manifest->>'actual_start_us')::bigint AND (r.manifest->>'actual_end_us')::bigint
               WHERE f.frame_id IN (%s)) candidates WHERE rank=1
-            """.formatted(slots),frames.toArray()))result.putIfAbsent((UUID)row.get("frame_id"),(UUID)row.get("clip_id"));
+            """.formatted(slots),frames.toArray()))result.put((UUID)row.get("frame_id"),(UUID)row.get("clip_id"));
         return result;
-    }
-    public Optional<Media> nativeMedia(UUID frame){
-        return recordings.playback(frame,true).map(value->{
-            var video=object(value.manifest().get("video"));String id=value.segmentId().toString(),key="native-"+id;
-            return new Media(asset(key,"native",frame.toString(),frame.toString(),id,value.bytes(),(String)video.get("sha256"),value.manifestSha256(),"media/native/"+id+".mp4"),
-                source(key,value.manifest(),value.manifestSha256()),Map.of("frame_id",frame.toString(),"kind","native","asset_key",key,"seek_offset_ms",value.seekOffsetMs()));
-        });
     }
     public Media normalizedMedia(UUID frame,UUID clip){
         var value=clips.verify(clip,MediaClipFiles.Mode.VIDEO,-1);verifyNormalizedBinding(frame,clip,value.manifest());
         var video=object(value.manifest().get("video"));String id=clip.toString(),key="normalized-"+id;
-        long offset;
-        if(MediaClipFiles.session(value.manifest()))offset=db.queryForObject("SELECT seek_offset_ms FROM media_job_frames WHERE job_id=? AND frame_id=?",Long.class,clip,frame)-((Number)value.manifest().get("actual_start_us")).longValue()/1000;
-        else offset=db.queryForObject("SELECT media_offset_ms FROM frames WHERE frame_id=?",Long.class,frame)-((Number)value.manifest().get("actual_start_us")).longValue()/1000;
+        long offset=db.queryForObject("SELECT media_offset_ms FROM frames WHERE frame_id=?",Long.class,frame)-((Number)value.manifest().get("actual_start_us")).longValue()/1000;
         return new Media(asset(key,"normalized",id,frame.toString(),id,value.videoBytes(),(String)video.get("sha256"),value.sha256(),"media/normalized/"+id+".mp4"),source(key,value.manifest(),value.sha256()),Map.of("frame_id",frame.toString(),"kind","normalized","asset_key",key,"seek_offset_ms",Math.max(0,offset),"seek_kind","approximate_normalized_offset"));
     }
     private static Map<String,Object> source(String key,Map<String,Object> manifest,String sha){var encoded=CanonicalJson.encode(manifest,256*1024);if(!sha.equals(encoded.sha256()))throw new InputRejected(409,"export_source_changed");return Map.of("asset_key",key,"filename","sources/"+key+".json","manifest_payload",encoded.payload(),"sha256",sha,"sample_files_included",false);}
@@ -53,38 +43,26 @@ public class ExportAssets {
         var value=new LinkedHashMap<String,Object>();value.put("asset_key",key);value.put("kind",kind);value.put("reference_id",reference);value.put("frame_id",frame);value.put("identity",identity);value.put("bytes",bytes);value.put("sha256",sha);value.put("manifest_sha256",manifest);value.put("filename",filename);return value;
     }
     private void verifyNormalizedBinding(UUID frame,UUID clip,Map<String,Object> manifest){
-        if(MediaClipFiles.session(manifest)){sessions.verifyLinkedFrame(clip,frame,object(manifest.get("session_input")),true);return;}
         var source=object(manifest.get("source"));
         if(!Boolean.TRUE.equals(db.queryForObject("SELECT EXISTS(SELECT 1 FROM frames f JOIN processing_tasks t USING(task_id) JOIN ingestion_task_specs p USING(task_id) WHERE f.frame_id=? AND t.source_id=? AND p.source_snapshot->'file'->>'sha256'=? AND p.source_snapshot->'file'->>'bytes'=? AND f.media_offset_ms*1000 BETWEEN ? AND ?)",Boolean.class,frame,UUID.fromString((String)manifest.get("source_id")),source.get("sha256"),source.get("bytes").toString(),manifest.get("actual_start_us"),manifest.get("actual_end_us"))))throw new InputRejected(409,"export_source_changed");
     }
     public void verifyBinding(Map<String,Object> asset,UUID frame){
-        if("native".equals(asset.get("kind"))){var reference=recordings.reference(frame,true).orElseThrow(()->new InputRejected(409,"export_source_changed"));if(!reference.segmentId().toString().equals(asset.get("identity"))||!reference.recording().sha256().equals(asset.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");}
-        else if("normalized".equals(asset.get("kind"))){UUID id=UUID.fromString((String)asset.get("reference_id"));if(!Objects.equals(clips.read(id).get("manifest_sha256"),asset.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");var manifest=JSON.readValue(db.queryForObject("SELECT manifest::text FROM recorded_media_clips WHERE clip_id=?",String.class,id),Map.class);verifyNormalizedBinding(frame,id,object(manifest));}
+        if("normalized".equals(asset.get("kind"))){UUID id=UUID.fromString((String)asset.get("reference_id"));if(!Objects.equals(clips.read(id).get("manifest_sha256"),asset.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");var manifest=JSON.readValue(db.queryForObject("SELECT manifest::text FROM recorded_media_clips WHERE clip_id=?",String.class,id),Map.class);verifyNormalizedBinding(frame,id,object(manifest));}
     }
     private Map<String,Object> databaseFacts(Map<String,Object> asset,UUID frame){
-        List<Map<String,Object>> rows;
-        if("native".equals(asset.get("kind")))rows=db.queryForList("""
-            SELECT jsonb_build_object('frame',to_jsonb(f),'link',to_jsonb(l),'segment',to_jsonb(s),
-              'identity',l.segment_id,'manifest_sha256',s.manifest_sha256,'bound',l.segment_id IS NOT NULL)::text AS facts
-            FROM frames f LEFT JOIN frame_recording_links l USING(frame_id)
-            LEFT JOIN stream_recording_segments s ON s.segment_id=l.segment_id WHERE f.frame_id=?
-            """,frame);
-        else if("normalized".equals(asset.get("kind")))rows=db.queryForList("""
-            SELECT jsonb_build_object('frame',to_jsonb(f),'clip',to_jsonb(r),'binding',to_jsonb(m),
-              'native_link',to_jsonb(l),'native_segment',to_jsonb(s),'archive',p.source_snapshot,
+        if(!"normalized".equals(asset.get("kind")))throw new InputRejected(409,"export_source_changed");
+        var rows=db.queryForList("""
+            SELECT jsonb_build_object('frame',to_jsonb(f),'clip',to_jsonb(r),
+              'archive',p.source_snapshot,
               'identity',r.clip_id,'manifest_sha256',r.manifest_sha256,
-              'bound',coalesce(m.job_id IS NOT NULL OR (r.source_id=t.source_id
+              'bound',coalesce(r.source_id=t.source_id
                 AND r.manifest->'source'->>'sha256'=p.source_snapshot->'file'->>'sha256'
                 AND r.manifest->'source'->>'bytes'=p.source_snapshot->'file'->>'bytes'
-                AND f.media_offset_ms*1000 BETWEEN (r.manifest->>'actual_start_us')::bigint AND (r.manifest->>'actual_end_us')::bigint),false))::text AS facts
+                AND f.media_offset_ms*1000 BETWEEN (r.manifest->>'actual_start_us')::bigint AND (r.manifest->>'actual_end_us')::bigint,false))::text AS facts
             FROM frames f LEFT JOIN recorded_media_clips r ON r.clip_id=?
-            LEFT JOIN media_job_frames m ON m.frame_id=f.frame_id AND m.job_id=r.clip_id
-            LEFT JOIN frame_recording_links l ON l.frame_id=f.frame_id
-            LEFT JOIN stream_recording_segments s ON s.segment_id=l.segment_id
             LEFT JOIN processing_tasks t ON t.task_id=f.task_id LEFT JOIN ingestion_task_specs p ON p.task_id=f.task_id
             WHERE f.frame_id=?
             """,UUID.fromString((String)asset.get("identity")),frame);
-        else throw new InputRejected(409,"export_source_changed");
         if(rows.size()!=1)throw new InputRejected(409,"export_source_changed");var facts=ExportPlans.decode((String)rows.getFirst().get("facts"));
         if(!Boolean.TRUE.equals(facts.get("bound"))||!asset.get("identity").equals(facts.get("identity"))||!asset.get("manifest_sha256").equals(facts.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");
         return facts;
@@ -99,10 +77,6 @@ public class ExportAssets {
         if("image".equals(kind)){
             var image=images.read(frame,"evidence:"+frame.toString().replace("-",""));if(image==null)throw new InputRejected(409,"export_asset_unavailable");
             value=new Content(null,image.bytes(),image.bytes().length,image.sha256(),"image/jpeg");
-        }else if("native".equals(kind)){
-            var recording=recordings.playback(frame,true).orElseThrow(()->new InputRejected(409,"export_asset_unavailable"));
-            if(!recording.segmentId().toString().equals(asset.get("identity"))||!recording.manifestSha256().equals(asset.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");
-            value=new Content(recording.path(),null,recording.bytes(),(String)object(recording.manifest().get("video")).get("sha256"),"video/mp4");
         }else if("normalized".equals(kind)){
             UUID clip=UUID.fromString((String)asset.get("reference_id"));var media=clips.verify(clip,MediaClipFiles.Mode.VIDEO,-1);verifyNormalizedBinding(frame,clip,media.manifest());
             if(!media.sha256().equals(asset.get("manifest_sha256")))throw new InputRejected(409,"export_source_changed");

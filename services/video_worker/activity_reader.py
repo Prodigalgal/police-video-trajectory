@@ -23,7 +23,6 @@ def run_activity_reader(reader):
     import cv2
     from .frames import archive_path,simulator_url
     from .scene_pipeline import SceneFrame
-    from .live_recording import recording_context,micros
 
     settings=reader.settings
     policy=ActivityPolicy(settings.sample_seconds,settings.scene_active_hold_seconds,settings.scene_fallback_seconds,
@@ -47,7 +46,7 @@ def run_activity_reader(reader):
             options={'rtsp_transport':'tcp','tls_verify':'1','ca_file':settings.stream_ca,'timeout':'15000000'}
         else:
             source=str(archive_path(settings,reader.reference));options={}
-        with av.open(source,options=options,timeout=(15,20)) as container,recording_context(reader,container) as recording:
+        with av.open(source,options=options,timeout=(15,20)) as container:
             stream=container.streams.video[0];stream.codec_context.thread_count=1
             origin=float(stream.start_time*stream.time_base) if stream.start_time is not None and stream.time_base is not None else None
             if reader.source_type=='archive' and origin is None:raise ValueError('archive PTS origin unavailable')
@@ -59,20 +58,16 @@ def run_activity_reader(reader):
                 if reader.stop.is_set() or reader.window_complete:break
                 if reader.duration_seconds and time.monotonic()-started>=reader.duration_seconds:
                     bounded_duration_completed=True;reader.add('bounded_duration_completed');break
-                if recording is not None:recording.packet(packet,reader.epoch)
                 try:frames=packet.decode()
                 except av.error.FFmpegError:
-                    if recording is not None:recording.discontinuity(reader.epoch,'recording_decode_error')
                     reader.add('decode_errors');gate,regions,guard,motion=reset();continue
                 for frame in frames:
                     if reader.stop.is_set():break
                     reader.add('decoded_frames')
                     if frame.pts is None or frame.time_base is None:
-                        if recording is not None:recording.discontinuity(reader.epoch,'recording_frame_clock_missing')
                         reader.add('missing_pts_frames');gate,regions,guard,motion=reset();continue
                     pts=float(frame.pts*frame.time_base)
                     if not math.isfinite(pts):
-                        if recording is not None:recording.discontinuity(reader.epoch,'recording_frame_clock_invalid')
                         reader.add('invalid_pts_frames');gate,regions,guard,motion=reset();continue
                     offset_ms=max(0,round((pts-origin)*1000)) if reader.source_type=='archive' else None
                     if reader.source_type=='archive' and pts-origin+1e-6<reader.start_media_seconds:continue
@@ -81,15 +76,12 @@ def run_activity_reader(reader):
                     if last_pts is not None and (pts<=last_pts or pts-last_pts>2):
                         if reader.source_type=='archive' and pts<last_pts:raise ValueError('archive PTS regressed')
                         reader.add('pts_discontinuities');reader.epoch+=1
-                        if recording is not None:recording.discontinuity(reader.epoch,'recording_frame_clock_gap')
                         gate,regions,guard,motion=reset();next_probe=None
                     first_pts=pts if first_pts is None else first_pts;last_pts=pts
                     if reader.max_media_seconds is not None and pts-first_pts>=reader.max_media_seconds:
                         reader.add('bounded_media_limit_reached');reader.stop.set();break
                     if frame.is_corrupt:
-                        if recording is not None:recording.discontinuity(reader.epoch,'recording_frame_corrupt')
                         reader.add('corrupt_frames');gate,regions,guard,motion=reset();continue
-                    if recording is not None:recording.observe_frame(micros(frame.pts,frame.time_base),round(first_pts*1000000),reader.epoch,frame.width,frame.height)
                     if next_probe is None:
                         # Keep the managed probe grid tied to the original media clock after a seek.
                         next_probe=origin+math.ceil((pts-origin-.001)/.2)*.2 if reader.archive_progress is not None else pts
@@ -184,8 +176,7 @@ def run_activity_reader(reader):
                             reader.add('motion_context_encoded');reader.add('motion_context_encoded_bytes',len(context))
                         except (ValueError,TypeError,OverflowError,cv2.error):reader.add('motion_context_encoding_failures')
                     selected=SceneFrame(jpeg.tobytes(),offset,decision['state'],decision['reason'],reader.run_id,
-                                        reader.epoch,max(0,round((pts-first_pts)*1000)),metrics,context,
-                                        recording.binding(micros(frame.pts,frame.time_base),reader.epoch) if recording is not None else None)
+                                        reader.epoch,max(0,round((pts-first_pts)*1000)),metrics,context)
                     try:
                         if reader.selected_sink is not None:reader.selected_sink(selected);reader.add('durable_frames')
                         else:reader.outputs.put_nowait(selected)

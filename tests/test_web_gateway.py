@@ -109,20 +109,6 @@ def test_evidence_requires_session_and_never_exposes_upstream_credentials():
         assert result.headers["cache-control"] == "no-store"
 
 
-def test_archive_proxy_preserves_single_range_and_requires_session():
-    frame_id = uuid.uuid4()
-    def core(req):
-        assert req.headers["authorization"] == "Bearer core-secret" and req.headers["range"] == "bytes=10-14"
-        return httpx.Response(206, content=b"12345", headers={"content-range": "bytes 10-14/100", "content-length": "5"})
-    with TestClient(create_app(SETTINGS, httpx.MockTransport(core)), base_url=ORIGIN) as client:
-        path = f"/api/v1/frames/{frame_id}/archive"
-        assert client.get(path).status_code == 401
-        client.post("/api/session", headers={"Origin": ORIGIN}, json={"token": "browser-token"})
-        result = client.get(path, headers={"Range": "bytes=10-14"})
-        assert result.status_code == 206 and result.content == b"12345" and result.headers["content-range"] == "bytes 10-14/100"
-        assert client.get(path, headers={"Range": "bytes=1-2,4-5"}).status_code == 416
-
-
 def test_observation_detail_proxy_binds_identity_and_keeps_credentials_private():
     observation_id=uuid.uuid4()
     calls=[]

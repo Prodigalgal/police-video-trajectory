@@ -16,12 +16,11 @@ public class ObservationDetails {
     private final JdbcTemplate db;
     private final SearchOrchestrator search;
     private final EvidenceFiles files;
-    private final FrameRecordings recordings;
     private final ReviewedPlateFacts plates;
     private final Path archives;
     private static final ObjectMapper JSON=new ObjectMapper();
-    public ObservationDetails(JdbcTemplate db,SearchOrchestrator search,EvidenceFiles files,FrameRecordings recordings,@Value("${VIDEO_ARCHIVE_DIR:/recordings}") String archives,ReviewedPlateFacts plates) {
-        this.db=db;this.search=search;this.files=files;this.recordings=recordings;this.plates=plates;this.archives=Path.of(archives).toAbsolutePath().normalize();
+    public ObservationDetails(JdbcTemplate db,SearchOrchestrator search,EvidenceFiles files,@Value("${VIDEO_ARCHIVE_DIR:/recordings}") String archives,ReviewedPlateFacts plates) {
+        this.db=db;this.search=search;this.files=files;this.plates=plates;this.archives=Path.of(archives).toAbsolutePath().normalize();
     }
     @SuppressWarnings("unchecked")
     public Optional<Map<String,Object>> read(UUID id) throws Exception {
@@ -65,7 +64,7 @@ public class ObservationDetails {
                 Path path=archives.resolve(ref.substring("archive:".length())+".mp4").normalize();
                 video=path.getParent().equals(archives) && Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) && Files.size(path)>0;
             }
-            result.put("video","rtsp".equals(row.get("source_type"))?recordings.hints(frame):Map.of("available",video,"reason",video?"registered_archive":"archive_unavailable"));
+            result.put("video",Map.of("available",video,"reason",video?"registered_archive":"archive_unavailable"));
             outcome="ok";return Optional.of(result);
         } finally { db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,?,?,?)","trial-service-account","read_observation",outcome,request); }
     }

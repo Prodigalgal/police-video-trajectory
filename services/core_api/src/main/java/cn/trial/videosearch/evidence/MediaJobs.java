@@ -15,23 +15,20 @@ import java.util.*;
 /** Independent, fenced archive encoding jobs. File verification stays outside write transactions. */
 @Service
 public class MediaJobs {
-    private static final tools.jackson.databind.ObjectMapper JSON=new tools.jackson.databind.ObjectMapper();
     public static final String PROFILE="archive-h264-10fps-v1";
     private static final long MAX_OFFSET_MS=9007199254710991L;
     private static final Set<String> FAILURES=Set.of("media_source_changed","media_source_unavailable","media_input_invalid","media_capacity_reached","media_store_busy","media_worker_error","media_timeout","job_timeout","consumer_interrupted","result_commit_unavailable");
     private final JdbcTemplate db;private final SearchOrchestrator search;private final MediaClipFiles files;private final MediaClips clips;
-    private final SessionMediaInputs sessions;
     private final TransactionTemplate tx;private final boolean enabled;private final int pendingLimit;private final AnalysisQueuePolicy policy;
-    public MediaJobs(JdbcTemplate db,SearchOrchestrator search,MediaClipFiles files,MediaClips clips,SessionMediaInputs sessions,PlatformTransactionManager manager,
+    public MediaJobs(JdbcTemplate db,SearchOrchestrator search,MediaClipFiles files,MediaClips clips,PlatformTransactionManager manager,
         @Value("${VIDEO_MEDIA_JOBS_ENABLED:false}")boolean enabled,@Value("${VIDEO_MEDIA_JOBS_PENDING_LIMIT:200}")int pending,
         @Value("${VIDEO_MEDIA_JOBS_ACTIVE_LIMIT:1}")int active,@Value("${VIDEO_MEDIA_JOBS_MAX_ATTEMPTS:3}")int attempts){
         if(pending<1||pending>2000||active<1||active>4||attempts<1||attempts>10)throw new IllegalArgumentException("Invalid media queue policy");
-        this.db=db;this.search=search;this.files=files;this.clips=clips;this.sessions=sessions;tx=new TransactionTemplate(manager);this.enabled=enabled;pendingLimit=pending;policy=new AnalysisQueuePolicy(active,attempts,5,300);
+        this.db=db;this.search=search;this.files=files;this.clips=clips;tx=new TransactionTemplate(manager);this.enabled=enabled;pendingLimit=pending;policy=new AnalysisQueuePolicy(active,attempts,5,300);
     }
     public record Create(UUID requestId,UUID sourceId,long startMs,long endMs){}
     public record Retry(UUID requestId,long revision){}
-    public record SessionCreate(UUID requestId,String recordingManifestSha256){}
-    public record Job(UUID jobId,UUID sourceId,String cameraId,long startMs,long endMs,String profileVersion,String sourceFingerprint,String sourceSha256,long sourceBytes,String inputSha256,int attempts,long generation,Instant expiresAt,String inputKind,Map<String,Object> sessionInput){}
+    public record Job(UUID jobId,UUID sourceId,String cameraId,long startMs,long endMs,String profileVersion,String sourceFingerprint,String sourceSha256,long sourceBytes,String inputSha256,int attempts,long generation,Instant expiresAt){}
     public record Complete(UUID jobId,String workerId,long generation,String inputSha256,String manifestSha256){}
     private void requireEnabled(){if(!enabled)throw new InputRejected(404,"media_jobs_disabled");}
     private void lock(){db.execute("SELECT pg_advisory_xact_lock(918273647)");}
@@ -63,51 +60,27 @@ public class MediaJobs {
         });return read(id);
     }
     private void saveRequest(UUID request,String sha,UUID job){db.update("INSERT INTO media_production_requests(request_id,request_sha256,job_id) VALUES(?,?,?)",request,sha,job);}
-    public Map<String,Object> createSession(UUID frame,SessionCreate body){
-        requireEnabled();if(frame==null||body==null||body.requestId()==null)throw new IllegalArgumentException("Invalid session media request");
-        var snapshot=sessions.metadata(frame,body.recordingManifestSha256(),true);var descriptor=snapshot.descriptor();
-        String requestSha=CanonicalJson.encode(Map.of("operation","create_session","frame_id",frame.toString(),"recording_manifest_sha256",body.recordingManifestSha256()),8192).sha256();
-        var replay=previous(body.requestId(),requestSha);
-        if(replay.isPresent()){sessions.verifyLinkedFrame(replay.get(),frame,descriptor,true);return read(replay.get());}
-        String inputSha=SessionMediaInputs.inputSha(descriptor);
-        if(db.queryForList("SELECT job_id FROM media_production_jobs WHERE input_sha256=?",inputSha).isEmpty()){
-            var verified=sessions.prepare(frame,body.recordingManifestSha256(),true);
-            if(!SessionMediaInputs.same(descriptor,verified.descriptor()))throw new InputRejected(409,"media_session_changed");snapshot=verified;
-        }
-        var frozen=snapshot;UUID id=tx.execute(status->{
-            lock();var duplicate=previous(body.requestId(),requestSha);if(duplicate.isPresent()){sessions.verifyLinkedFrame(duplicate.get(),frame,descriptor,true);return duplicate.get();}
-            sessions.lockFrame(frame);sessions.verifyFrame(frame,descriptor,true);
-            var existing=db.queryForList("SELECT job_id FROM media_production_jobs WHERE input_sha256=?",inputSha);UUID job;
-            if(existing.isEmpty()){
-                capacity();job=UUID.randomUUID();db.update("INSERT INTO media_production_jobs(job_id,source_id,camera_id,source_fingerprint,source_sha256,source_bytes,start_ms,end_ms,profile_version,input_sha256,input_kind,input_descriptor) VALUES(?,?,?,?,?,?,0,?,?,?,'session',?::jsonb)",
-                    job,UUID.fromString((String)descriptor.get("source_id")),descriptor.get("camera_id"),descriptor.get("source_fingerprint"),descriptor.get("source_sha256"),descriptor.get("source_bytes"),SessionMediaInputs.endMs(descriptor),SessionMediaInputs.PROFILE,inputSha,CanonicalJson.encode(descriptor,16384).payload());
-                db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES('trial-service-account','create_session_media_job','queued',?)",body.requestId());
-            }else job=(UUID)existing.getFirst().get("job_id");
-            sessions.attach(job,frozen,true);sessions.verifyJob(job,descriptor,true);saveRequest(body.requestId(),requestSha,job);return job;
-        });return read(id);
-    }
     private static void lease(String worker,int seconds){if(worker==null||!worker.matches("[A-Za-z0-9_.-]{1,70}")||seconds<60||seconds>600)throw new IllegalArgumentException("Invalid media lease");}
-    public Optional<Job> claim(String worker,int seconds){
-        return claim(worker,seconds,null);
-    }
+    /** Only archive inputs remain; a requested capability list no longer changes the claim. */
     public Optional<Job> claim(String worker,int seconds,List<String> supported){
-        requireEnabled();lease(worker,seconds);if(supported!=null&&(supported.size()>2||supported.stream().anyMatch(Objects::isNull)))throw new IllegalArgumentException("Invalid media input capabilities");var kinds=new TreeSet<>(supported==null?List.of("archive"):supported);
-        if(kinds.isEmpty()||kinds.size()>2||!Set.of("archive","session").containsAll(kinds))throw new IllegalArgumentException("Invalid media input capabilities");
-        if(!sessions.enabled())kinds.remove("session");if(kinds.isEmpty())return Optional.empty();
+        return claim(worker,seconds);
+    }
+    public Optional<Job> claim(String worker,int seconds){
+        requireEnabled();lease(worker,seconds);
         return tx.execute(status->{
             lock();if(!claimsEnabled())return Optional.empty();
             db.update("UPDATE media_production_jobs SET state=CASE WHEN attempts+1>=? THEN 'failed' ELSE 'queued' END,attempts=attempts+1,revision=revision+1,last_error_code='job_timeout',lease_owner=NULL,lease_expires_at=NULL,next_attempt_at=clock_timestamp()+(LEAST(300,5*power(2,LEAST(attempts,10))) * interval '1 second'),updated_at=clock_timestamp() WHERE state='active' AND lease_expires_at<=clock_timestamp()",policy.maxAttempts());
             if(db.queryForObject("SELECT count(*) FROM media_production_jobs WHERE state='active'",Long.class)>=policy.activeLimit())return Optional.empty();
-            var cameras=new TreeSet<>(search.readableCameras());if(cameras.isEmpty())return Optional.empty();var arguments=new ArrayList<Object>();arguments.add(policy.maxAttempts());arguments.addAll(cameras);arguments.addAll(kinds);arguments.add(worker);arguments.add(seconds);
+            var cameras=new TreeSet<>(search.readableCameras());if(cameras.isEmpty())return Optional.empty();var arguments=new ArrayList<Object>();arguments.add(policy.maxAttempts());arguments.addAll(cameras);arguments.add(worker);arguments.add(seconds);
             var rows=db.query("""
-                WITH candidate AS(SELECT job_id FROM media_production_jobs WHERE state='queued' AND attempts<? AND camera_id IN (%s) AND input_kind IN (%s) AND next_attempt_at<=clock_timestamp() ORDER BY next_attempt_at,created_at,job_id FOR UPDATE SKIP LOCKED LIMIT 1)
+                WITH candidate AS(SELECT job_id FROM media_production_jobs WHERE state='queued' AND attempts<? AND camera_id IN (%s) AND next_attempt_at<=clock_timestamp() ORDER BY next_attempt_at,created_at,job_id FOR UPDATE SKIP LOCKED LIMIT 1)
                 UPDATE media_production_jobs j SET state='active',revision=revision+1,lease_owner=?,lease_generation=lease_generation+1,lease_expires_at=clock_timestamp()+(? * interval '1 second'),updated_at=clock_timestamp()
                 FROM candidate WHERE j.job_id=candidate.job_id RETURNING j.*
-                """.formatted(String.join(",",Collections.nCopies(cameras.size(),"?")),String.join(",",Collections.nCopies(kinds.size(),"?"))),(rs,n)->new Job(rs.getObject("job_id",UUID.class),rs.getObject("source_id",UUID.class),rs.getString("camera_id"),rs.getLong("start_ms"),rs.getLong("end_ms"),rs.getString("profile_version"),rs.getString("source_fingerprint"),rs.getString("source_sha256"),rs.getLong("source_bytes"),rs.getString("input_sha256"),rs.getInt("attempts"),rs.getLong("lease_generation"),rs.getTimestamp("lease_expires_at").toInstant(),rs.getString("input_kind"),claimDescriptor(rs.getString("input_descriptor"))),arguments.toArray());
+                """.formatted(String.join(",",Collections.nCopies(cameras.size(),"?"))),(rs,n)->new Job(rs.getObject("job_id",UUID.class),rs.getObject("source_id",UUID.class),rs.getString("camera_id"),rs.getLong("start_ms"),rs.getLong("end_ms"),rs.getString("profile_version"),rs.getString("source_fingerprint"),rs.getString("source_sha256"),rs.getLong("source_bytes"),rs.getString("input_sha256"),rs.getInt("attempts"),rs.getLong("lease_generation"),rs.getTimestamp("lease_expires_at").toInstant()),arguments.toArray());
             var claimed=rows.stream().findFirst();
             if(claimed.isPresent()){
                 var job=claimed.get();boolean valid;
-                try{if("session".equals(job.inputKind())){sessions.verifyJob(job.jobId(),job.sessionInput(),false);valid=true;}else valid=job.sourceFingerprint().equals(clips.source(job.sourceId(),job.cameraId()));}catch(InputRejected changed){valid=false;}
+                try{valid=job.sourceFingerprint().equals(clips.source(job.sourceId(),job.cameraId()));}catch(InputRejected changed){valid=false;}
                 if(!valid){db.update("UPDATE media_production_jobs SET state='failed',attempts=attempts+1,revision=revision+1,last_error_code='media_source_changed',lease_owner=NULL,lease_expires_at=NULL,updated_at=clock_timestamp() WHERE job_id=?",job.jobId());return Optional.empty();}
             }
             return claimed;
@@ -122,25 +95,22 @@ public class MediaJobs {
     }
     private Map<String,Object> owned(Complete body){
         if(body==null||body.jobId()==null||body.generation()<1||body.inputSha256()==null||!body.inputSha256().matches("[a-f0-9]{64}")||body.manifestSha256()==null||!body.manifestSha256().matches("[a-f0-9]{64}"))throw new IllegalArgumentException("Invalid media completion");lease(body.workerId(),60);
-        var rows=db.queryForList("SELECT *,input_descriptor::text AS descriptor_text,lease_expires_at>clock_timestamp() AS alive FROM media_production_jobs WHERE job_id=? AND lease_owner=? AND lease_generation=?",body.jobId(),body.workerId(),body.generation());
+        var rows=db.queryForList("SELECT *,lease_expires_at>clock_timestamp() AS alive FROM media_production_jobs WHERE job_id=? AND lease_owner=? AND lease_generation=?",body.jobId(),body.workerId(),body.generation());
         if(rows.size()!=1||!body.inputSha256().equals(rows.getFirst().get("input_sha256")))throw new InputRejected(409,"media_lease_expired");
         var row=rows.getFirst();if("completed".equals(row.get("state"))){if(!body.manifestSha256().equals(row.get("manifest_sha256")))throw new InputRejected(409,"media_completion_conflict");}
         else if(!"active".equals(row.get("state"))||!Boolean.TRUE.equals(row.get("alive")))throw new InputRejected(409,"media_lease_expired");return row;
     }
     public Map<String,Object> complete(Complete body){
         requireEnabled();var row=owned(body);String camera=(String)row.get("camera_id");
-        verifySource(row,body.jobId());
+        verifySource(row);
         var asset=files.verify(body.jobId(),body.manifestSha256(),MediaClipFiles.Mode.MANIFEST,-1);
-        boolean session="session".equals(row.get("input_kind"));
-        if(session!=MediaClipFiles.session(asset.manifest())||session&&!(asset.manifest().get("session_input") instanceof Map<?,?>))throw new InputRejected(409,"media_completion_conflict");
-        if(session&&!CanonicalJson.encode(asset.manifest().get("session_input"),16384).sha256().equals(CanonicalJson.encode(decodeDescriptor((String)row.get("descriptor_text")),16384).sha256()))throw new InputRejected(409,"media_completion_conflict");
         if(!asset.sourceId().equals(row.get("source_id"))||!asset.camera().equals(camera)||!asset.sourceSha256().equals(row.get("source_sha256"))||asset.sourceBytes()!=((Number)row.get("source_bytes")).longValue()
             ||((Number)asset.manifest().get("requested_start_ms")).longValue()!=((Number)row.get("start_ms")).longValue()||((Number)asset.manifest().get("requested_end_ms")).longValue()!=((Number)row.get("end_ms")).longValue())throw new InputRejected(409,"media_completion_conflict");
         // Registration can survive a lost lease/ack; its immutable output is
         // reused by the next attempt, while job completion remains fenced.
         clips.register(new MediaClips.Register(body.jobId(),body.manifestSha256(),body.workerId()));
         tx.executeWithoutResult(status->{db.queryForList("SELECT job_id FROM media_production_jobs WHERE job_id=? FOR UPDATE",body.jobId());db.queryForList("SELECT source_id FROM sources WHERE source_id=? FOR SHARE",row.get("source_id"));var current=owned(body);
-            verifySource(current,body.jobId());
+            verifySource(current);
             if(!"completed".equals(current.get("state"))){db.update("UPDATE media_production_jobs SET state='completed',manifest_sha256=?,lease_expires_at=NULL,last_error_code=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE job_id=?",body.manifestSha256(),body.jobId());db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES(?,'complete_media_job','completed',?)",body.workerId(),body.jobId());}});
         return Map.of("completed",true,"jobId",body.jobId().toString(),"clipId",body.jobId().toString(),"inputSha256",body.inputSha256(),"manifestSha256",body.manifestSha256());
     }
@@ -149,34 +119,23 @@ public class MediaJobs {
         String sha=CanonicalJson.encode(Map.of("operation","retry","job_id",id.toString(),"revision",body.revision()),8192).sha256();
         tx.executeWithoutResult(status->{lock();var previous=previous(body.requestId(),sha);if(previous.isPresent()){if(!id.equals(previous.get()))throw new InputRejected(409,"media_request_conflict");return;}
             var row=readRow(id,true);if(!"failed".equals(row.get("state"))||((Number)row.get("revision")).longValue()!=body.revision())throw new InputRejected(409,"media_revision_conflict");capacity();
-            verifySource(row,id);
+            verifySource(row);
             db.update("UPDATE media_production_jobs SET state='queued',attempts=0,revision=revision+1,last_error_code=NULL,next_attempt_at=clock_timestamp(),updated_at=clock_timestamp() WHERE job_id=?",id);saveRequest(body.requestId(),sha,id);
             db.update("INSERT INTO audit_events(actor_id,action,result,request_id) VALUES('trial-service-account','retry_media_job','queued',?)",body.requestId());});return read(id);
     }
     private Map<String,Object> readRow(UUID id,boolean locked){
-        var rows=db.queryForList("SELECT *,input_descriptor::text AS descriptor_text,lease_expires_at<=clock_timestamp() AS lease_expired,next_attempt_at>clock_timestamp() AS retry_wait FROM media_production_jobs WHERE job_id=?"+(locked?" FOR UPDATE":""),id);
+        var rows=db.queryForList("SELECT *,lease_expires_at<=clock_timestamp() AS lease_expired,next_attempt_at>clock_timestamp() AS retry_wait FROM media_production_jobs WHERE job_id=?"+(locked?" FOR UPDATE":""),id);
         if(rows.size()!=1||!search.mayReadCamera((String)rows.getFirst().get("camera_id")))throw new InputRejected(404,"media_job_unavailable");return rows.getFirst();
     }
     public Map<String,Object> read(UUID id){requireEnabled();return summary(readRow(id,false),claimsEnabled());}
-    public Map<String,Object> listForFrame(UUID frame,int limit,UUID after){
-        requireEnabled();if(limit<1||limit>50)throw new IllegalArgumentException("Invalid media page");
-        var reference=sessions.metadata(frame,sessionDigest(frame),true);
-        var rows=db.queryForList("SELECT j.*,j.lease_expires_at<=clock_timestamp() AS lease_expired,j.next_attempt_at>clock_timestamp() AS retry_wait FROM media_job_frames f JOIN media_production_jobs j ON j.job_id=f.job_id WHERE f.frame_id=? AND (?::uuid IS NULL OR j.job_id>?) ORDER BY j.job_id LIMIT ?",frame,after,after,limit+1);
-        boolean more=rows.size()>limit,claims=claimsEnabled();var page=rows.subList(0,Math.min(limit,rows.size()));
-        for(var row:page)sessions.verifyLinkedFrame((UUID)row.get("job_id"),frame,reference.descriptor(),true);
-        var result=new LinkedHashMap<String,Object>();result.put("items",page.stream().map(row->summary(row,claims)).toList());result.put("has_more",more);result.put("next_cursor",more?page.getLast().get("job_id").toString():null);return result;
-    }
-    private String sessionDigest(UUID frame){var rows=db.queryForList("SELECT s.manifest_sha256 FROM frame_recording_links l JOIN stream_recording_segments s USING(segment_id) WHERE l.frame_id=?",frame);if(rows.size()!=1)throw new InputRejected(404,"media_session_unavailable");return (String)rows.getFirst().get("manifest_sha256");}
-    private void verifySource(Map<String,Object> row,UUID job){if("session".equals(row.get("input_kind")))sessions.verifyJob(job,decodeDescriptor((String)row.get("descriptor_text")),false);else if(!row.get("source_fingerprint").equals(clips.source((UUID)row.get("source_id"),(String)row.get("camera_id"))))throw new InputRejected(409,"media_source_changed");}
-    @SuppressWarnings("unchecked") private static Map<String,Object> decodeDescriptor(String raw){if(raw==null)return null;try{var value=JSON.readValue(raw,Map.class);SessionMediaInputs.validateDescriptor(value);return value;}catch(RuntimeException error){throw new InputRejected(409,"media_session_changed");}}
-    private static Map<String,Object> claimDescriptor(String raw){try{return decodeDescriptor(raw);}catch(InputRejected malformed){return null;}}
+    private void verifySource(Map<String,Object> row){if(!row.get("source_fingerprint").equals(clips.source((UUID)row.get("source_id"),(String)row.get("camera_id"))))throw new InputRejected(409,"media_source_changed");}
     public Map<String,Object> list(String camera,int limit,UUID after){
         requireEnabled();if(!search.mayReadCamera(camera))throw new InputRejected(404,"media_job_unavailable");if(limit<1||limit>50)throw new IllegalArgumentException("Invalid media page");
         var rows=db.queryForList("SELECT *,lease_expires_at<=clock_timestamp() AS lease_expired,next_attempt_at>clock_timestamp() AS retry_wait FROM media_production_jobs WHERE camera_id=? AND (?::uuid IS NULL OR job_id>?) ORDER BY job_id LIMIT ?",camera,after,after,limit+1);
         boolean more=rows.size()>limit,claims=claimsEnabled();var page=rows.subList(0,Math.min(limit,rows.size()));var result=new LinkedHashMap<String,Object>();result.put("items",page.stream().map(row->summary(row,claims)).toList());result.put("has_more",more);result.put("next_cursor",more?page.getLast().get("job_id").toString():null);result.put("policy",policy.snapshot(pendingLimit));result.put("claims_enabled",claims);return result;
     }
     private static Map<String,Object> summary(Map<String,Object> row,boolean claims){
-        var result=new LinkedHashMap<String,Object>();for(String key:List.of("job_id","source_id","camera_id","start_ms","end_ms","profile_version","input_kind","input_sha256","state","attempts","revision","next_attempt_at","last_error_code","manifest_sha256","created_at","updated_at","lease_expired")){var value=row.get(key);result.put(key,value instanceof UUID id?id.toString():value instanceof Timestamp time?time.toInstant().toString():value);}
+        var result=new LinkedHashMap<String,Object>();for(String key:List.of("job_id","source_id","camera_id","start_ms","end_ms","profile_version","input_sha256","state","attempts","revision","next_attempt_at","last_error_code","manifest_sha256","created_at","updated_at","lease_expired")){var value=row.get(key);result.put(key,value instanceof UUID id?id.toString():value instanceof Timestamp time?time.toInstant().toString():value);}
         String state=(String)row.get("state");result.put("claims_enabled",claims);result.put("dispatch_state","queued".equals(state)?!claims?"paused":Boolean.TRUE.equals(row.get("retry_wait"))?"retry_wait":"waiting":"active".equals(state)?Boolean.TRUE.equals(row.get("lease_expired"))?"lease_expired":"running":state);
         if("completed".equals(state))result.put("clip_id",row.get("job_id").toString());return result;
     }

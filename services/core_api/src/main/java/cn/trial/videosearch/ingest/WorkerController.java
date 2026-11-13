@@ -4,7 +4,6 @@ import cn.trial.videosearch.evidence.AnalysisInputs;
 import cn.trial.videosearch.evidence.InputRejected;
 import cn.trial.videosearch.evidence.MediaClips;
 import cn.trial.videosearch.evidence.MediaClipFiles;
-import cn.trial.videosearch.evidence.FrameRecordings;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,7 +35,6 @@ public class WorkerController {
     private final ModuleQueue modules;
     private final AnalysisInputs inputs;
     private final MediaClips clips;
-    private final FrameRecordings recordings;
     private final byte[] expected;
     public record ClaimRequest(String workerId, String sourceType, int leaseSeconds) {}
     public record RenewRequest(String workerId, long generation, int leaseSeconds) {}
@@ -46,7 +44,7 @@ public class WorkerController {
     public record ClaimsControl(Boolean enabled, String actor) {}
     public record ModuleClaim(String workerId,int leaseSeconds,String moduleKey){}
 
-    public WorkerController(TaskLeaseService leases, ObservationStore observations, AnalysisQueue analysis, TargetPipeline targets, ModuleQueue modules, AnalysisInputs inputs, MediaClips clips, FrameRecordings recordings, @Value("${VIDEO_WORKER_TOKEN:}") String token) {
+    public WorkerController(TaskLeaseService leases, ObservationStore observations, AnalysisQueue analysis, TargetPipeline targets, ModuleQueue modules, AnalysisInputs inputs, MediaClips clips, @Value("${VIDEO_WORKER_TOKEN:}") String token) {
         if (token.isBlank()) throw new IllegalArgumentException("worker token must be configured");
         this.leases = leases;
         this.observations = observations;
@@ -55,7 +53,6 @@ public class WorkerController {
         this.modules = modules;
         this.inputs = inputs;
         this.clips = clips;
-        this.recordings = recordings;
         expected = ("Bearer " + token).getBytes(StandardCharsets.UTF_8);
     }
 
@@ -72,13 +69,6 @@ public class WorkerController {
     }
 
     private boolean authorized(String auth){return auth!=null&&auth.length()<=1024&&MessageDigest.isEqual(expected,auth.getBytes(StandardCharsets.UTF_8));}
-
-    @PostMapping("/internal/v1/frame-recordings/register")
-    public Mono<ResponseEntity<Map<String,Object>>> registerRecording(@RequestHeader(value="Authorization",required=false)String auth,@RequestBody FrameRecordings.Register request){return call(auth,()->ResponseEntity.ok(recordings.register(request)));}
-    @GetMapping("/internal/v1/frame-recordings/{frameId}/manifest")
-    public Mono<ResponseEntity<Map<String,Object>>> recordingManifest(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID frameId){
-        return call(auth,()->{var asset=recordings.playback(frameId,false).orElseThrow(()->new InputRejected(404,"recording_unavailable"));return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(Map.of("manifest",asset.manifest(),"manifest_sha256",asset.manifestSha256(),"seek_offset_ms",asset.seekOffsetMs()));});
-    }
 
     @PostMapping("/internal/v1/media-clips/register")
     public Mono<ResponseEntity<Map<String,Object>>> registerClip(@RequestHeader(value="Authorization",required=false)String auth,@RequestBody MediaClips.Register request){return call(auth,()->ResponseEntity.ok(clips.register(request)));}

@@ -15,9 +15,8 @@ public class MediaClips {
     private final JdbcTemplate db;
     private final SearchOrchestrator search;
     private final MediaClipFiles files;
-    private final SessionMediaInputs sessions;
     private final TransactionTemplate transaction;
-    public MediaClips(JdbcTemplate db,SearchOrchestrator search,MediaClipFiles files,PlatformTransactionManager manager,SessionMediaInputs sessions){this.db=db;this.search=search;this.files=files;this.sessions=sessions;transaction=new TransactionTemplate(manager);}
+    public MediaClips(JdbcTemplate db,SearchOrchestrator search,MediaClipFiles files,PlatformTransactionManager manager){this.db=db;this.search=search;this.files=files;transaction=new TransactionTemplate(manager);}
     public record Register(UUID clipId,String manifestSha256,String workerId){}
     public Map<String,Object> register(Register request){
         if(request==null||request.clipId()==null||request.manifestSha256()==null||!request.manifestSha256().matches("[a-f0-9]{64}")||request.workerId()==null||!request.workerId().matches("[A-Za-z0-9_.-]{1,70}"))throw new IllegalArgumentException("Invalid media registration");
@@ -29,13 +28,12 @@ public class MediaClips {
             verify(request.clipId(),MediaClipFiles.Mode.MANIFEST,-1,false);return summary(stored(request.clipId(),false));
         }
         var assets=files.verify(request.clipId(),request.manifestSha256(),MediaClipFiles.Mode.MANIFEST,-1);
-        boolean session=MediaClipFiles.session(assets.manifest());String fingerprint=source(assets.sourceId(),assets.camera(),session);
-        if(session)sessions.verifyOriginal(request.clipId(),descriptor(assets.manifest()));else files.verifyRecording(assets);
+        String fingerprint=source(assets.sourceId(),assets.camera());
+        files.verifyRecording(assets);
         transaction.executeWithoutResult(status->{
             db.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))","media-clip:"+request.clipId());
             db.queryForList("SELECT source_id FROM sources WHERE source_id=? FOR SHARE",assets.sourceId());
-            if(!fingerprint.equals(source(assets.sourceId(),assets.camera(),session)))throw new InputRejected(409,"media_source_changed");
-            if(session){var reference=sessions.verifyJob(request.clipId(),descriptor(assets.manifest()),false);sessions.lockFrame(reference.frameId());sessions.verifyJob(request.clipId(),descriptor(assets.manifest()),false);}
+            if(!fingerprint.equals(source(assets.sourceId(),assets.camera())))throw new InputRejected(409,"media_source_changed");
             var rows=db.queryForList("SELECT manifest_sha256,source_fingerprint FROM recorded_media_clips WHERE clip_id=?",request.clipId());
             if(!rows.isEmpty()){
                 if(!request.manifestSha256().equals(rows.getFirst().get("manifest_sha256"))||!fingerprint.equals(rows.getFirst().get("source_fingerprint")))throw new InputRejected(409,"media_registration_conflict");
@@ -46,10 +44,9 @@ public class MediaClips {
         });
         return summary(stored(request.clipId(),false));
     }
-    String source(UUID id,String camera){return source(id,camera,false);}
-    private String source(UUID id,String camera,boolean session){
+    String source(UUID id,String camera){
         var rows=db.queryForList("SELECT source_id,camera_id,source_type,source_ref,source_time_origin FROM sources WHERE source_id=?",id);
-        if(rows.size()!=1||!camera.equals(rows.getFirst().get("camera_id"))||!search.mayReadCamera(camera)||!Set.of("archive","rtsp").contains(rows.getFirst().get("source_type"))||!session&&(!"archive".equals(rows.getFirst().get("source_type"))||!("archive:"+camera).equals(rows.getFirst().get("source_ref"))))throw new InputRejected(404,"media_source_unavailable");
+        if(rows.size()!=1||!camera.equals(rows.getFirst().get("camera_id"))||!search.mayReadCamera(camera)||!"archive".equals(rows.getFirst().get("source_type"))||!("archive:"+camera).equals(rows.getFirst().get("source_ref")))throw new InputRejected(404,"media_source_unavailable");
         return MediaSourceIdentity.fingerprint(rows.getFirst());
     }
     private Map<String,Object> stored(UUID id,boolean publicView){
@@ -58,8 +55,7 @@ public class MediaClips {
         var row=rows.getFirst();Map<String,Object> saved;
         try{saved=JSON.readValue((String)row.get("manifest_text"),Map.class);if(!CanonicalJson.encode(saved,64*1024).sha256().equals(row.get("manifest_sha256")))throw new IllegalArgumentException();}
         catch(RuntimeException malformed){throw new InputRejected(409,"media_manifest_changed");}
-        boolean session=MediaClipFiles.session(saved);if(!source((UUID)row.get("source_id"),(String)row.get("camera_id"),session).equals(row.get("source_fingerprint")))throw new InputRejected(409,"media_source_changed");
-        if(session)sessions.verifyJob(id,descriptor(saved),publicView);
+        if(!source((UUID)row.get("source_id"),(String)row.get("camera_id")).equals(row.get("source_fingerprint")))throw new InputRejected(409,"media_source_changed");
         return row;
     }
     public Map<String,Object> read(UUID id){return summary(stored(id,true));}
@@ -71,7 +67,6 @@ public class MediaClips {
         if(!verified.sourceId().equals(row.get("source_id"))||!verified.camera().equals(row.get("camera_id")))throw new InputRejected(409,"media_manifest_changed");
         stored(id,publicView);return verified;
     }
-    @SuppressWarnings("unchecked") private static Map<String,Object> descriptor(Map<String,Object> manifest){if(!(manifest.get("session_input") instanceof Map<?,?> input))throw new InputRejected(409,"media_manifest_changed");return (Map<String,Object>)input;}
     public Map<String,Object> list(String camera,int limit,UUID after){
         if(!search.mayReadCamera(camera))throw new InputRejected(404,"media_unavailable");if(limit<1||limit>50)throw new IllegalArgumentException("Invalid media page");
         var rows=db.queryForList("SELECT clip_id,source_id,camera_id,manifest_sha256,registered_by,created_at FROM recorded_media_clips WHERE camera_id=? AND (?::uuid IS NULL OR clip_id>?) ORDER BY clip_id LIMIT ?",camera,after,after,limit+1);

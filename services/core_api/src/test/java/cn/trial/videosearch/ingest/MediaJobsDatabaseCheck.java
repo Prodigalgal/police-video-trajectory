@@ -27,8 +27,8 @@ public final class MediaJobsDatabaseCheck {
         var source=new DriverManagerDataSource(System.getenv("DATABASE_URL")+"&currentSchema="+schema,System.getenv("DATABASE_USER"),System.getenv("DATABASE_PASSWORD"));var db=new JdbcTemplate(source);var manager=new DataSourceTransactionManager(source);
         check(schema.equals(db.queryForObject("SELECT current_schema()",String.class)),"schema mismatch");
         Path root=Path.of("/tmp/media-jobs-check");Files.createDirectories(root.resolve("clips"));
-        var search=scope(db,"recording-01,recording-02,recording-03,recording-04");var sessions=new SessionMediaInputs(db,new FrameRecordings(db,search,new StreamRecordingFiles("/recordings-live"),new EvidenceFiles("/evidence"),manager,false));var files=new MediaClipFiles(root.resolve("clips").toString(),"/recordings");var clips=new MediaClips(db,search,files,manager,sessions);
-        var jobs=new MediaJobs(db,search,files,clips,sessions,manager,true,20,1,3);var checks=new ArrayList<String>();
+        var search=scope(db,"recording-01,recording-02,recording-03,recording-04");var files=new MediaClipFiles(root.resolve("clips").toString(),"/recordings");var clips=new MediaClips(db,search,files,manager);
+        var jobs=new MediaJobs(db,search,files,clips,manager,true,20,1,3);var checks=new ArrayList<String>();
         List<Map<String,Object>> cases=JSON.readValue(Files.readString(Path.of("/verification/cases.json")),List.class);
         var identities=new ArrayList<UUID>();var requests=new ArrayList<MediaJobs.Create>();
         for(var sample:cases.subList(0,4)){
@@ -66,9 +66,9 @@ public final class MediaJobsDatabaseCheck {
         var exhausted=jobs.claim("exhausted-worker",120).orElseThrow();db.update("UPDATE media_production_jobs SET attempts=2 WHERE job_id=?",exhausted.jobId());jobs.fail(exhausted.jobId(),"exhausted-worker",exhausted.generation(),"media_timeout");
         var exhaustedState=jobs.read(exhausted.jobId());check("failed".equals(exhaustedState.get("state"))&&((Number)exhaustedState.get("attempts")).intValue()==3,"attempt limit was not enforced");jobs.retry(exhausted.jobId(),new MediaJobs.Retry(UUID.randomUUID(),((Number)exhaustedState.get("revision")).longValue()));checks.add("retry_exhaustion_stops_automatic_work");
         var invalid=jobs.claim("invalid-input-worker",120).orElseThrow();jobs.fail(invalid.jobId(),"invalid-input-worker",invalid.generation(),"media_input_invalid");var invalidState=jobs.read(invalid.jobId());check("failed".equals(invalidState.get("state")),"invalid input kept retrying");jobs.retry(invalid.jobId(),new MediaJobs.Retry(UUID.randomUUID(),((Number)invalidState.get("revision")).longValue()));checks.add("invalid_input_fails_without_useless_automatic_retries");
-        var limited=new MediaJobs(db,search,files,clips,sessions,manager,true,4,1,3);
+        var limited=new MediaJobs(db,search,files,clips,manager,true,4,1,3);
         rejected(()->limited.create(new MediaJobs.Create(UUID.randomUUID(),first.sourceId(),15000,19000)),"media_jobs_full");checks.add("queue_capacity_rejects_new_work_without_dropping_old_jobs");
-        var restrictedSearch=scope(db,"recording-04");var restrictedClips=new MediaClips(db,restrictedSearch,files,manager,sessions);var restricted=new MediaJobs(db,restrictedSearch,files,restrictedClips,sessions,manager,true,20,1,3);
+        var restrictedSearch=scope(db,"recording-04");var restrictedClips=new MediaClips(db,restrictedSearch,files,manager);var restricted=new MediaJobs(db,restrictedSearch,files,restrictedClips,manager,true,20,1,3);
         rejected(()->restricted.read(identities.getFirst()),"media_job_unavailable");rejected(()->restricted.create(new MediaJobs.Create(UUID.randomUUID(),first.sourceId(),15000,19000)),"media_source_unavailable");checks.add("camera_scope_precedes_original_file_access");
         var scopeJob=restricted.claim("scope-worker",120).orElseThrow();check("recording-04".equals(scopeJob.cameraId()),"consumer escaped configured camera scope");jobs.fail(scopeJob.jobId(),"scope-worker",scopeJob.generation(),"media_timeout");checks.add("consumer_only_claims_configured_camera_scope");
         var extra=new ArrayList<UUID>();for(long start:List.of(15000L,20000L))extra.add(UUID.fromString((String)jobs.create(new MediaJobs.Create(UUID.randomUUID(),first.sourceId(),start,start+4000)).get("job_id")));

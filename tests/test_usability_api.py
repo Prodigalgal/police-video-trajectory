@@ -81,18 +81,16 @@ def test_live_preview_uses_a_small_variant_and_caches_only_camera_authorization(
         assert client.get(path+'?source=untrusted').status_code==422
 
 
-def test_nearby_records_preserves_session_scope_bounds_and_observation_version():
+def test_nearby_records_route_is_removed_while_context_input_survives():
     cfg=settings();cfg['analysis_inputs']=True;directory=Directory(cfg);frame=str(uuid4());calls=[]
     def core(request):
-        if '/nearby-records' not in request.url.path:return directory.handle(request)
+        if not request.url.path.endswith('/context'):return directory.handle(request)
         calls.append(request)
         assert request.headers['authorization']=='Bearer test-core-secret'
-        assert request.url.params['expected_version']=='3'
-        return httpx.Response(200,json={'schema_version':'nearby-records-v1','items':[]})
+        return httpx.Response(200,json={'frames':[]})
     with TestClient(create_app(cfg,httpx.MockTransport(core)),base_url=ORIGIN) as client:
-        path='/api/v1/observations/'+frame+'/nearby-records'
-        assert client.get(path).status_code==401
         login(client,'reader')
-        assert client.get(path+'?limit=18').status_code==422
-        assert client.get(path+'?expected_version=3&limit=9').status_code==200
+        assert client.get('/api/v1/observations/'+frame+'/nearby-records').status_code==404
+        assert not calls
+        assert client.get('/api/v1/observations/'+frame+'/context').status_code==200
         assert len(calls)==1

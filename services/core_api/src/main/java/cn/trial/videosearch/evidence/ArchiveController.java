@@ -19,18 +19,16 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.UUID;
 
-/** Serve registered historical files or verified same-session recordings. */
+/** Serve registered historical archive files for authorized frames. */
 @RestController
 public class ArchiveController {
     private final JdbcTemplate db;
     private final SearchOrchestrator search;
     private final Path root;
-    private final FrameRecordings recordings;
 
-    public ArchiveController(JdbcTemplate db, SearchOrchestrator search, FrameRecordings recordings, @Value("${VIDEO_ARCHIVE_DIR:/recordings}") String root) {
+    public ArchiveController(JdbcTemplate db, SearchOrchestrator search, @Value("${VIDEO_ARCHIVE_DIR:/recordings}") String root) {
         this.db = db;
         this.search = search;
-        this.recordings = recordings;
         this.root = Path.of(root).toAbsolutePath().normalize();
     }
 
@@ -54,17 +52,11 @@ public class ArchiveController {
                     """, frameId);
             if (rows.size() != 1 || !search.mayReadCamera((String) rows.getFirst().get("camera_id"))) return ResponseEntity.notFound().build();
             Path path;
-            if("rtsp".equals(rows.getFirst().get("source_type"))){
-                var segment=recordings.playback(frameId,true);
-                if(segment.isEmpty())return ResponseEntity.notFound().build();
-                path=segment.get().path();
-            }else{
             if(!"archive".equals(rows.getFirst().get("source_type")))return ResponseEntity.notFound().build();
             String ref = (String) rows.getFirst().get("source_ref");
             if (ref == null || !ref.matches("archive:recording-0[1-6]")) return ResponseEntity.notFound().build();
             path = root.resolve(ref.substring("archive:".length()) + ".mp4").normalize();
             if (!path.getParent().equals(root) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) return ResponseEntity.notFound().build();
-            }
             var response=MediaRangeResponse.read(path,requested);
             result=response.getStatusCode().is2xxSuccessful()?"ok":"range_rejected";
             return response;

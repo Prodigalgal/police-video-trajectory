@@ -1,4 +1,4 @@
--- Application version: 0.37.0. Additive media registry; no observations or inference jobs.
+-- Application version: 1.0.0. Additive media registry; no observations or inference jobs.
 CREATE TABLE IF NOT EXISTS recorded_media_clips (
     clip_id uuid PRIMARY KEY,
     source_id uuid NOT NULL REFERENCES sources(source_id),

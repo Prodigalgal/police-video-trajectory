@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {exportFeature,exportFeatureCommand,recordingFeature} from '../src/storage-feature-client.js'
+import {exportFeature,exportFeatureCommand} from '../src/storage-feature-client.js'
 import {validateExportModule,validateExportInfo,exportStateLabel} from '../src/export-client.js'
 const feature={id:'evidence_export',installed:true,enabled:false,version:1,plugin:'bound_video_package_v1',parameters:{},default_enabled:false,apply_scope:'new_exports',plugins:[{id:'bound_video_package_v1',label:'已绑定录像打包'}]}
 test('导出开关需要已安装模块，关闭不依赖安装，拒绝跨模块参数',()=>{
@@ -10,7 +10,6 @@ test('导出开关需要已安装模块，关闭不依赖安装，拒绝跨模�
   assert.throws(()=>exportFeatureCommand({...feature,installed:false},{...feature,enabled:true}))
   assert.equal(exportFeatureCommand({...feature,installed:false},feature).enabled,false)
   assert.throws(()=>exportFeatureCommand(feature,{...feature,parameters:{seconds:5}}))
-  assert.throws(()=>recordingFeature(snapshot))
 })
 test('安装和在线状态不能替代实际开关，矛盾的可制作标志被拒绝',()=>{
   const status={schema_version:'export-module-v1',installed:true,enabled:false,version:1,plugin:'bound_video_package_v1',online:true,consumer_count:1,consumer_versions:['0.35.0'],can_create:false}

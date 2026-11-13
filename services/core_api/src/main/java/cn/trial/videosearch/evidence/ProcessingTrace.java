@@ -80,11 +80,6 @@ public class ProcessingTrace {
         long total=((Number)index.get("total")).longValue(),submitted=((Number)index.get("submitted")).longValue();
         stages.add(stage("search_index",total==0?"not_started":total==submitted?"submitted":"pending",null,index));
         checks.add(check("elasticsearch_document","not_checked"));
-        var recording=db.queryForList("SELECT l.segment_id,l.seek_offset_ms,l.payload_sha256,l.packet_sha256,s.manifest_sha256 FROM frame_recording_links l JOIN stream_recording_segments s USING(segment_id) WHERE l.frame_id=?",frame);
-        var recordingDetails=new LinkedHashMap<String,Object>();
-        if(!recording.isEmpty())recording.getFirst().forEach((key,value)->recordingDetails.put(key,value instanceof UUID id?id.toString():value));
-        stages.add(stage("recording_binding",recording.isEmpty()?"missing":"recorded",null,recordingDetails));
-        checks.add(check("recording_file","not_checked"));
         var reviews=db.queryForList("SELECT r.review_state,r.review_scope,r.revision FROM specialist_plate_reviews r JOIN specialist_analysis_jobs j ON j.job_id=r.job_id WHERE j.frame_id=? ORDER BY r.job_id LIMIT 32",frame);
         stages.add(stage("plate_review",reviews.isEmpty()?"not_started":"recorded",null,Map.of("reviews",reviews)));
         if(verifyAssets){

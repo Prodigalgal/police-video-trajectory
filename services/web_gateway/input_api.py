@@ -88,12 +88,6 @@ def mount_inputs(app, cfg, authenticated, origin_ok):
             params['expected_version'] = expected_version
         return await forward(request, 'GET', f'/api/v1/observations/{observation}/context', params=params, context=True)
 
-    @app.get('/api/v1/observations/{observation}/nearby-records')
-    async def nearby(observation:UUID,request:Request,expected_version:int|None=Query(default=None,ge=1),limit:int=Query(default=9,ge=1,le=17)):
-        params={'limit':limit}
-        if expected_version is not None:params['expected_version']=expected_version
-        return await forward(request,'GET',f'/api/v1/observations/{observation}/nearby-records',params=params,context=True)
-
     @app.post('/api/v1/analysis-inputs')
     async def create(body: Create, request: Request):
         return await forward(request, 'POST', '/internal/analysis-inputs', body={

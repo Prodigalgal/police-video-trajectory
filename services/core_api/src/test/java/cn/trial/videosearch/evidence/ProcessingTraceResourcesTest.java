@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
-import java.nio.file.Path;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -18,8 +17,7 @@ class ProcessingTraceResourcesTest {
     private final UUID frame=UUID.randomUUID();
     private final JdbcTemplate db=mock(JdbcTemplate.class);
     private final ObservationIndexReader index=mock(ObservationIndexReader.class);
-    private final FrameRecordings recordings=mock(FrameRecordings.class);
-    private final ProcessingTraceResources resources=new ProcessingTraceResources(db,index,recordings);
+    private final ProcessingTraceResources resources=new ProcessingTraceResources(db,index);
     private final List<Map<String,Object>> rows=new ArrayList<>();
     private Map<String,Object> projection(Map<String,Object> row){return Map.of("observation_id",row.get("observation_id").toString(),"record_version",row.get("record_version"),"deleted",false,"description","协议字段");}
     private void seed(int count){
@@ -29,7 +27,6 @@ class ProcessingTraceResourcesTest {
         }
         when(db.queryForList(startsWith("SELECT o.observation_id"),eq(frame))).thenReturn(rows);
         when(db.queryForList(startsWith("SELECT t.source_id"),eq(frame),eq(frame))).thenReturn(List.of(Map.of("source_id",UUID.randomUUID(),"source_ref","private-reference")));
-        when(recordings.playback(frame,true)).thenReturn(Optional.empty());
         when(index.read(anyList())).thenAnswer(call->{
             List<UUID> ids=call.getArgument(0);
             return Map.of("docs",rows.stream().filter(row->ids.contains(row.get("observation_id"))).map(this::document).toList());
@@ -61,12 +58,5 @@ class ProcessingTraceResourcesTest {
     @Test void sourceChangesDuringResourceReadsRejectTheWholeSnapshot(){
         seed(1);when(db.queryForList(startsWith("SELECT t.source_id"),eq(frame),eq(frame))).thenReturn(List.of(Map.of("source_ref","before")),List.of(Map.of("source_ref","after")));
         assertEquals("trace_source_changed",assertThrows(InputRejected.class,()->resources.verify(frame)).code);
-    }
-    @Test void recordingChecksExposeOnlyVerifiedIdentityHashAndSize(){
-        seed(1);when(recordings.playback(frame,true)).thenReturn(Optional.of(new FrameRecordings.Playback(UUID.randomUUID(),Path.of("/private/source.mp4"),128,1000,"a".repeat(64),Map.of("source_ref","must not leak"))));
-        var result=resources.verify(frame).get(1);assertEquals("matched",result.get("state"));
-        assertFalse(result.toString().contains("private"));assertFalse(result.toString().contains("source_ref"));
-        when(recordings.playback(frame,true)).thenThrow(new InputRejected(409,"recording_manifest_changed"));assertEquals("changed",resources.verify(frame).get(1).get("state"));
-        doThrow(new InputRejected(422,"recording_file_unavailable")).when(recordings).playback(frame,true);assertEquals("unavailable",resources.verify(frame).get(1).get("state"));
     }
 }

@@ -28,7 +28,7 @@ public final class MediaDatabaseCheck {
             Path target=copied.resolve(Path.of("/tmp/media-clips").relativize(original).toString());
             if(Files.isDirectory(original))Files.createDirectories(target);else Files.copy(original,target);
         }}
-        var files=new MediaClipFiles(copied.toString(),"/recordings");var clips=new MediaClips(db,search,files,manager,new SessionMediaInputs(db,new FrameRecordings(db,search,new StreamRecordingFiles("/recordings-live"),new EvidenceFiles("/evidence"),manager,false)));var checks=new ArrayList<String>();
+        var files=new MediaClipFiles(copied.toString(),"/recordings");var clips=new MediaClips(db,search,files,manager);var checks=new ArrayList<String>();
         List<Map<String,Object>> cases=JSON.readValue(Files.readString(Path.of("/verification/cases.json")),List.class);
         check(cases.size()==5,"five clips from four points required");check(db.queryForObject("SELECT count(*) FROM recorded_media_clips",Long.class)==0,"migration fabricated assets");checks.add("additive_registry_creates_no_assets");
         var registered=new ArrayList<Map<String,Object>>();
@@ -45,7 +45,7 @@ public final class MediaDatabaseCheck {
         check(db.queryForObject("SELECT count(*) FROM recorded_media_clips",Long.class)==5,"registry duplicated assets");
         checks.addAll(List.of("four_original_recordings_verified","five_real_clips_registered","python_java_canonical_digest_agrees","real_jpeg_dimensions_and_digests","real_mp4_digest_and_range_source","registration_ack_replay_is_idempotent"));
         var first=registered.getFirst();UUID id=UUID.fromString((String)first.get("clip_id")),sourceId=UUID.fromString((String)first.get("source_id"));
-        var detached=new MediaClips(db,search,new MediaClipFiles(copied.toString(),"/tmp/missing-source-catalog"),manager,new SessionMediaInputs(db,new FrameRecordings(db,search,new StreamRecordingFiles("/recordings-live"),new EvidenceFiles("/evidence"),manager,false)));
+        var detached=new MediaClips(db,search,new MediaClipFiles(copied.toString(),"/tmp/missing-source-catalog"),manager);
         check(detached.register(command(first)).get("clip_id").equals(id.toString()),"registered replay unexpectedly reloaded original video");checks.add("ack_replay_uses_retained_asset_without_original_recording");
         db.update("DELETE FROM recorded_media_clips WHERE clip_id=?",id);
         try(var pool=Executors.newFixedThreadPool(8)){
@@ -56,7 +56,7 @@ public final class MediaDatabaseCheck {
         var page=clips.list("recording-01",1,null);check(Boolean.TRUE.equals(page.get("has_more")),"media page cursor missing");
         var next=clips.list("recording-01",1,UUID.fromString((String)page.get("next_cursor")));
         check(!((Map<?,?>)((List<?>)page.get("items")).getFirst()).get("clip_id").equals(((Map<?,?>)((List<?>)next.get("items")).getFirst()).get("clip_id")),"media pages overlap");checks.add("camera_cursor_pagination");
-        var hidden=new MediaClips(db,search(db,"recording-04"),files,manager,new SessionMediaInputs(db,new FrameRecordings(db,search,new StreamRecordingFiles("/recordings-live"),new EvidenceFiles("/evidence"),manager,false)));rejected(()->hidden.read(id),"media_unavailable");rejected(()->hidden.verify(id,MediaClipFiles.Mode.VIDEO,-1),"media_unavailable");checks.add("camera_scope_protects_metadata_video_and_samples");
+        var hidden=new MediaClips(db,search(db,"recording-04"),files,manager);rejected(()->hidden.read(id),"media_unavailable");rejected(()->hidden.verify(id,MediaClipFiles.Mode.VIDEO,-1),"media_unavailable");checks.add("camera_scope_protects_metadata_video_and_samples");
         rejected(()->clips.verify(id,MediaClipFiles.Mode.SAMPLE,31),"media_sample_unavailable");checks.add("sample_index_is_bounded");
         Path folder=copied.resolve(id.toString().replace("-","")),image=folder.resolve("sample-000.jpg"),video=folder.resolve("clip.mp4");
         byte[] savedImage=Files.readAllBytes(image),savedVideo=Files.readAllBytes(video);UUID other=UUID.fromString((String)registered.get(1).get("clip_id"));

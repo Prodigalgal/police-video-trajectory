@@ -24,12 +24,12 @@ class MediaClipsTest {
     }
     @Test void hiddenCameraDoesNotReadAnyAssets(){
         var db=mock(JdbcTemplate.class);var search=mock(SearchOrchestrator.class);var files=mock(MediaClipFiles.class);var manager=mock(PlatformTransactionManager.class);
-        var clips=new MediaClips(db,search,files,manager,mock(SessionMediaInputs.class));
+        var clips=new MediaClips(db,search,files,manager);
         assertEquals("media_unavailable",assertThrows(InputRejected.class,()->clips.list("recording-05",20,null)).code);verifyNoInteractions(db,files,manager);
     }
     @Test void sourceMutationAfterFileIoRollsBackTheShortRegistrationTransaction(){
         var db=mock(JdbcTemplate.class);var search=mock(SearchOrchestrator.class);var files=mock(MediaClipFiles.class);var manager=mock(PlatformTransactionManager.class);
-        var clips=new MediaClips(db,search,files,manager,mock(SessionMediaInputs.class));UUID clip=UUID.randomUUID(),source=UUID.randomUUID();
+        var clips=new MediaClips(db,search,files,manager);UUID clip=UUID.randomUUID(),source=UUID.randomUUID();
         var assets=new MediaClipFiles.Assets(Map.of(),"{}","a".repeat(64),source,"recording-01","b".repeat(64),10,directory.resolve("clip.mp4"),1,null);
         when(files.verify(clip,"a".repeat(64),MediaClipFiles.Mode.MANIFEST,-1)).thenAnswer(call->{verifyNoInteractions(manager);return assets;});
         doAnswer(call->{verifyNoInteractions(manager);return null;}).when(files).verifyRecording(assets);
@@ -50,7 +50,7 @@ class MediaClipsTest {
     }
     @Test void mediaRegistrationRequiresTheWorkerToken(){
         var clips=mock(MediaClips.class);UUID id=UUID.randomUUID();when(clips.register(any())).thenReturn(Map.of("clip_id",id.toString(),"manifest_sha256","a".repeat(64),"inference_invoked",false));
-        var web=WebTestClient.bindToController(new WorkerController(null,null,null,null,null,null,clips,null,"worker-token")).build();
+        var web=WebTestClient.bindToController(new WorkerController(null,null,null,null,null,null,clips,"worker-token")).build();
         var body=Map.of("clipId",id,"manifestSha256","a".repeat(64),"workerId","media-worker");
         web.post().uri("/internal/v1/media-clips/register").header("Authorization","Bearer search").bodyValue(body).exchange().expectStatus().isUnauthorized();
         web.post().uri("/internal/v1/media-clips/register").header("Authorization","Bearer worker-token").bodyValue(body).exchange().expectStatus().isOk().expectBody().jsonPath("$.clip_id").isEqualTo(id.toString());
