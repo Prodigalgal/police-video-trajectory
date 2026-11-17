@@ -22,6 +22,7 @@ public class AppearanceSearch {
         jobs.requireEnabled();if(query==null||query.requestId()==null||query.profile()==null||query.targetType()==null||!AppearanceCatalog.hex(query.imageSha256())||!Set.of("person","vehicle").contains(query.targetType()))throw new IllegalArgumentException();
         AppearanceSource.validateBox(query.bbox(),query.imageWidth(),query.imageHeight());var snapshot=catalog.current();var profile=snapshot.profiles().get(query.profile());
         if(profile==null||!profile.sha256().equals(query.profileSha256()))throw new InputRejected(409,"appearance_profile_conflict");
+        if(!profile.supports(query.targetType()))throw new InputRejected(422,"appearance_target_type_unsupported");
         AppearanceVectors.validate(query.vector(),profile.dimensions());
         var cameras=query.cameras()==null||query.cameras().isEmpty()?new ArrayList<>(permissions.readableCameras()):query.cameras();
         if(cameras.isEmpty()||cameras.size()>50||new HashSet<>(cameras).size()!=cameras.size()||cameras.stream().anyMatch(camera->!permissions.mayReadCamera(camera)))throw new InputRejected(403,"appearance_scope_forbidden");

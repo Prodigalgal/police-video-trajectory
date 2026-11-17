@@ -30,12 +30,24 @@ def decode_crop(raw,box,expected_sha=None):
     return image.crop(bounds),(width,height)
 
 
-def pixels(crop,normalization):
+def pixels(crop,normalization,preprocessing='roi_letterbox_224_rgb_v1'):
+    if preprocessing in {'roi_resize_256x128_bgr_v1','roi_resize_208x208_rgb_v1'}:
+        if normalization!='raw_0_255':raise ValueError('native OSNet requires raw image pixels')
+        size=(128,256) if preprocessing=='roi_resize_256x128_bgr_v1' else (208,208)
+        array=np.asarray(crop.resize(size,Image.Resampling.BILINEAR),dtype=np.float32)
+        if preprocessing=='roi_resize_256x128_bgr_v1':array=array[:,:,::-1]
+        return np.ascontiguousarray(array.transpose(2,0,1)[None])
+    if normalization not in {'imagenet','clip'}:raise ValueError('appearance normalization unavailable')
     mean,std=([.485,.456,.406],[.229,.224,.225]) if normalization=='imagenet' else ([.48145466,.4578275,.40821073],[.26862954,.26130258,.27577711])
-    width,height=crop.size;scale=min(224/width,224/height)
-    resized=crop.resize((max(1,round(width*scale)),max(1,round(height*scale))),Image.Resampling.BICUBIC)
-    padded=Image.new('RGB',(224,224),tuple(round(x*255) for x in mean));padded.paste(resized,((224-resized.width)//2,(224-resized.height)//2))
-    array=np.asarray(padded,dtype=np.float32)/255
+    if preprocessing=='roi_letterbox_224_rgb_v1':
+        width,height=crop.size;scale=min(224/width,224/height)
+        resized=crop.resize((max(1,round(width*scale)),max(1,round(height*scale))),Image.Resampling.BICUBIC)
+        image=Image.new('RGB',(224,224),tuple(round(x*255) for x in mean));image.paste(resized,((224-resized.width)//2,(224-resized.height)//2))
+    elif preprocessing in {'roi_resize_256x128_rgb_v1','roi_resize_256x256_rgb_v1'}:
+        width=128 if preprocessing=='roi_resize_256x128_rgb_v1' else 256
+        image=crop.resize((width,256),Image.Resampling.BILINEAR)
+    else:raise ValueError('appearance preprocessing unavailable')
+    array=np.asarray(image,dtype=np.float32)/255
     return np.ascontiguousarray(((array-np.array(mean,np.float32))/np.array(std,np.float32)).transpose(2,0,1)[None])
 
 
@@ -48,14 +60,32 @@ class Encoder:
             for block in iter(lambda:source.read(1024*1024),b''):digest.update(block)
         if digest.hexdigest()!=definition.model_sha256:raise ValueError('model asset digest differs')
         import onnxruntime as ort
-        options=ort.SessionOptions();options.intra_op_num_threads=1;options.inter_op_num_threads=1
+        options=ort.SessionOptions();options.intra_op_num_threads=1;options.inter_op_num_threads=1;options.log_severity_level=3
         self.session=ort.InferenceSession(str(path),sess_options=options,providers=['CPUExecutionProvider']);self.definition=definition
-        self.output='last_hidden_state' if definition.output=='cls_token' else 'image_embeds'
-        if [x.name for x in self.session.get_inputs()]!=['pixel_values'] or self.output not in {x.name for x in self.session.get_outputs()}:raise ValueError('appearance model interface differs')
+        self.input='images' if definition.adapter=='onnx_reid_v1' else 'pixel_values'
+        self.output='embeddings' if definition.output=='embedding' else 'last_hidden_state' if definition.output=='cls_token' else 'image_embeds'
+        if definition.adapter=='onnx_osnet_v1':
+            person=definition.target_types==['person']
+            self.input='data' if person else 'input';self.output='reid_embedding' if person else 'output'
+        inputs=self.session.get_inputs();outputs=self.session.get_outputs()
+        if [x.name for x in inputs]!=[self.input] or self.output not in {x.name for x in outputs}:raise ValueError('appearance model interface differs')
+        if definition.adapter=='onnx_reid_v1':
+            width=128 if definition.preprocessing=='roi_resize_256x128_rgb_v1' else 256
+            shape=inputs[0].shape
+            output=next(value for value in outputs if value.name==self.output)
+            if inputs[0].type!='tensor(float)' or len(shape)!=4 or shape[1:]!=[3,256,width] or isinstance(shape[0],int) and shape[0]!=1 or len(output.shape)!=2 or output.shape[1]!=definition.dimensions or isinstance(output.shape[0],int) and output.shape[0]!=1:
+                raise ValueError('ReID model tensor shape differs')
+        elif definition.adapter=='onnx_osnet_v1':
+            person=definition.target_types==['person'];expected=[1,3,256,128] if person else [1,3,208,208]
+            shape=inputs[0].shape;output=next(value for value in outputs if value.name==self.output)
+            def matches(actual,wanted):return actual==wanted or not person and (actual is None or isinstance(actual,str))
+            if inputs[0].type!='tensor(float)' or len(shape)!=4 or any(not matches(actual,wanted) for actual,wanted in zip(shape,expected)) or output.type!='tensor(float)' or len(output.shape)!=2 or not matches(output.shape[0],1) or not matches(output.shape[1],definition.dimensions):
+                raise ValueError('native OSNet tensor shape differs')
 
     def encode_crop(self,crop):
-        tensor=pixels(crop,self.definition.normalization);started=time.perf_counter()
-        output=self.session.run([self.output],{'pixel_values':tensor})[0]
+        tensor=pixels(crop,self.definition.normalization,self.definition.preprocessing);started=time.perf_counter()
+        output=self.session.run([self.output],{self.input:tensor})[0]
+        if self.definition.adapter in {'onnx_reid_v1','onnx_osnet_v1'} and np.asarray(output).shape!=(1,self.definition.dimensions):raise ValueError('ReID output tensor shape differs')
         vector=np.asarray(output[0,0] if self.definition.output=='cls_token' else output[0],np.float32)
         if vector.shape!=(self.definition.dimensions,) or not np.isfinite(vector).all():raise ValueError('appearance vector invalid')
         norm=float(np.linalg.norm(vector))

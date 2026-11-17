@@ -37,10 +37,26 @@ public class InvestigationRepository {
         var point=point(rows.getFirst());
         if(expected!=null&&expected!=point.version())throw new AdminService.Rejected(409,"observation_revision_conflict");return point;
     }
+    public List<ObservationPoint> points(Collection<UUID> identities){
+        if(identities.isEmpty())return List.of();
+        if(identities.size()>1000)throw new IllegalArgumentException("Too many investigation observations");
+        var cameras=scope.readableCameras().stream().sorted().toList();
+        if(cameras.isEmpty())return List.of();
+        var args=new ArrayList<Object>(identities);args.addAll(cameras);
+        String ids=String.join(",",Collections.nCopies(identities.size(),"?"));
+        String allowed=String.join(",",Collections.nCopies(cameras.size(),"?"));
+        return db.queryForList(SELECT+" AND o.observation_id IN ("+ids+") AND o.camera_id IN ("+allowed+")",args.toArray()).stream().map(InvestigationRepository::point).toList();
+    }
     public List<ObservationPoint> nearby(ObservationPoint anchor,int before,int after,int limit){
         if(!anchor.localClock())return List.of(anchor);
         long start=Math.max(0,anchor.mediaMs()-before),end=Math.addExact(anchor.mediaMs(),after);
         return db.queryForList(SELECT+" AND o.camera_id=? AND f.task_id=? AND c.scene_run_id=? AND c.media_epoch=? AND c.relative_media_ms BETWEEN ? AND ? AND o.target_type=? ORDER BY abs(c.relative_media_ms-?),o.observation_id LIMIT ?",anchor.cameraId(),anchor.taskId(),anchor.runId(),anchor.epoch(),start,end,anchor.targetType(),anchor.mediaMs(),limit).stream().map(InvestigationRepository::point).toList();
+    }
+    public List<ObservationPoint> trackNeighbors(ObservationPoint anchor,int gap,int limit){
+        if(gap<1||gap>5500||limit<1||limit>6)throw new IllegalArgumentException("Invalid track context bound");
+        if(!anchor.localClock()||anchor.trackId()==null)return List.of();
+        long start=Math.max(0,anchor.mediaMs()-gap),end=Math.addExact(anchor.mediaMs(),gap);
+        return db.queryForList(SELECT+" AND o.camera_id=? AND f.task_id=? AND c.scene_run_id=? AND c.media_epoch=? AND c.relative_media_ms BETWEEN ? AND ? AND o.target_type=? AND d.track_id=? AND d.class_name IS NOT DISTINCT FROM ? AND o.observation_id<>? ORDER BY abs(c.relative_media_ms-?),o.observation_id LIMIT ?",anchor.cameraId(),anchor.taskId(),anchor.runId(),anchor.epoch(),start,end,anchor.targetType(),anchor.trackId(),anchor.className(),anchor.observationId(),anchor.mediaMs(),limit).stream().map(InvestigationRepository::point).toList();
     }
     public List<ObservationPoint> otherCameras(ObservationPoint anchor,int seconds,int limit){
         var cameras=scope.readableCameras().stream().filter(camera->!camera.equals(anchor.cameraId())).sorted().toList();

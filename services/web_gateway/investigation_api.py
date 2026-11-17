@@ -1,3 +1,5 @@
+import asyncio
+import re
 from typing import Literal
 from uuid import UUID
 from fastapi import Request,Query
@@ -22,9 +24,54 @@ class LocationUpdate(BaseModel):
         return self
 
 
+class MtmcQuery(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:UUID
+    observation_id:UUID
+    expected_version:int=Field(ge=1,strict=True)
+    strategy:str=Field(default='evidence-fusion-v1',pattern=r'^[A-Za-z0-9_-]{1,80}$')
+    profiles:list[str]=Field(default_factory=list,max_length=3)
+    camera_ids:list[str]=Field(default_factory=list,max_length=50)
+    seconds:int=Field(default=600,ge=1,le=3600,strict=True)
+    limit:int=Field(default=20,ge=1,le=50,strict=True)
+
+    @model_validator(mode='after')
+    def bounded_identifiers(self):
+        for values,pattern in ((self.profiles,r'[A-Za-z0-9_-]{1,80}'),(self.camera_ids,r'[A-Za-z0-9_.-]{1,100}')):
+            if len(values)!=len(set(values)) or any(not re.fullmatch(pattern,value) for value in values):
+                raise ValueError('invalid or duplicate identifier')
+        return self
+
+
 def mount_investigation(app,cfg,authenticated,origin_ok):
     proxy=BusinessProxy(app,cfg,authenticated,origin_ok)
     prefix='/internal/investigation'
+
+    @app.get('/api/v1/investigation/mtmc/capabilities')
+    async def mtmc_capabilities(request:Request):
+        return await proxy.call(request,'GET',prefix+'/mtmc/capabilities')
+
+    @app.post('/api/v1/investigation/mtmc/queries')
+    async def mtmc_create(body:MtmcQuery,request:Request):
+        # httpx's read timeout is per chunk; bound the complete operation as well.
+        try:
+            async with asyncio.timeout(360):
+                return await proxy.call(request,'POST',prefix+'/mtmc/queries',timeout=360,body={
+                    'requestId':str(body.request_id),'observationId':str(body.observation_id),
+                    'expectedVersion':body.expected_version,'strategy':body.strategy,
+                    'profiles':body.profiles,'cameraIds':body.camera_ids,'seconds':body.seconds,'limit':body.limit})
+        except TimeoutError:
+            from fastapi import HTTPException
+            raise HTTPException(503,'跨镜关联超时，请保留原条件重试') from None
+
+    @app.get('/api/v1/investigation/mtmc/queries/{identity}')
+    async def mtmc_read(identity:UUID,request:Request,offset:int=Query(default=0,ge=0,le=1000),limit:int=Query(default=20,ge=1,le=50),run:str|None=Query(default=None,max_length=161,pattern=r'^[A-Za-z0-9_-]{1,80}:[A-Za-z0-9_-]{1,80}$')):
+        return await proxy.call(request,'GET',prefix+f'/mtmc/queries/{identity}',params={
+            'offset':offset,'limit':limit,**({'run':run} if run is not None else {})})
+
+    @app.delete('/api/v1/investigation/mtmc/queries/{identity}')
+    async def mtmc_close(identity:UUID,request:Request):
+        return await proxy.call(request,'DELETE',prefix+f'/mtmc/queries/{identity}')
 
     @app.get('/api/v1/investigation/capabilities')
     async def capabilities(request:Request):return await proxy.call(request,'GET',prefix+'/capabilities')

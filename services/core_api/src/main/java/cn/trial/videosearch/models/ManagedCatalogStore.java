@@ -41,6 +41,12 @@ public class ManagedCatalogStore {
         var result=new LinkedHashMap<String,String>();
         if("appearance".equals(kind)){
             Object selected=definition.get("active");if(!(selected instanceof String id))throw new IllegalArgumentException();result.put("appearance",id);
+            if(definition.containsKey("active_by_type")){
+                var perType=object(definition.get("active_by_type"));
+                for(String type:List.of("person","vehicle")){
+                    Object active=perType.getOrDefault(type,id);if(!(active instanceof String value))throw new IllegalArgumentException();result.put(type,value);
+                }
+            }
         }else if("processing".equals(kind)){
             var modules=object(definition.get("modules"));
             for(String operation:List.of("license_plate","text_ocr")){
@@ -61,8 +67,21 @@ public class ManagedCatalogStore {
         var available=new HashMap<String,Map<String,Object>>();
         for(Object profile:profiles){var definition=object(profile);available.put((String)definition.get("profile"),definition);}
         if("appearance".equals(baseline.kind())){
-            if(!bindings.keySet().equals(Set.of("appearance"))||bindings.get("appearance")==null||!available.containsKey(bindings.get("appearance")))throw new InputRejected(422,"model_profile_unavailable");
+            boolean typed=bindings.keySet().equals(Set.of("appearance","person","vehicle"));
+            if(!typed&&!bindings.keySet().equals(Set.of("appearance"))||bindings.get("appearance")==null||!available.containsKey(bindings.get("appearance")))throw new InputRejected(422,"model_profile_unavailable");
+            var fallback=available.get(bindings.get("appearance"));
+            if(!supports(fallback,"person")||!supports(fallback,"vehicle"))throw new InputRejected(422,"appearance_target_type_unsupported");
             value.put("active",bindings.get("appearance"));
+            if(typed){
+                var perType=new LinkedHashMap<String,String>();
+                for(String type:List.of("person","vehicle")){
+                    String id=bindings.get(type);var profile=available.get(id);
+                    if(profile==null)throw new InputRejected(422,"model_profile_unavailable");
+                    if(!supports(profile,type))throw new InputRejected(422,"appearance_target_type_unsupported");
+                    perType.put(type,id);
+                }
+                value.put("active_by_type",perType);
+            }else value.remove("active_by_type");
         }else if("processing".equals(baseline.kind())){
             if(!bindings.keySet().equals(Set.of("license_plate","text_ocr")))throw new IllegalArgumentException();
             var modules=object(value.get("modules"));
@@ -74,6 +93,7 @@ public class ManagedCatalogStore {
         }else throw new IllegalArgumentException();
         value.put("revision",revision);return value;
     }
+    private static boolean supports(Map<String,Object> profile,String type){return !(profile.get("target_types") instanceof List<?> types)||types.contains(type);}
     @Transactional(timeout=10)
     public Map<String,Object> save(Baseline baseline,Command command,String actor){
         if(command==null||command.requestId()==null||command.expectedRevision()<0||command.expectedRevision()>=MAX_REVISION||!baseline.sha256().equals(command.baseSha256())||actor==null||actor.isBlank())throw new InputRejected(409,"model_catalog_source_changed");
