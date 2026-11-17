@@ -23,7 +23,8 @@ public class InstalledModelBindings {
             var profiles=new ArrayList<Map<String,Object>>();
             for(Object raw:(List<?>)baseline.definition().get("profiles")){
                 var profile=ManagedCatalogStore.object(raw);var safe=new LinkedHashMap<String,Object>();
-                for(String field:List.of("profile","adapter","capabilities","model_id","dimensions","normalization","output"))if(profile.containsKey(field))safe.put(field,profile.get(field));
+                for(String field:List.of("profile","adapter","capabilities","model_id","dimensions","normalization","output","preprocessing","target_types"))if(profile.containsKey(field))safe.put(field,profile.get(field));
+                if("appearance".equals(kind)&&!safe.containsKey("target_types"))safe.put("target_types",List.of("person","vehicle"));
                 safe.put("sha256",CanonicalJson.encode(profile,16384).sha256());profiles.add(safe);
             }
             return Map.of("id",kind,"available",true,"source_current",current,"base_sha256",baseline.sha256(),"base_revision",baseline.revision(),

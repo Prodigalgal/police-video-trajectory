@@ -3,7 +3,7 @@ import Login from './PasswordLogin.jsx'
 import EvidenceDialog from './EvidenceDialog.jsx'
 import {FloatingNotice,InfoBubble} from './Feedback.jsx'
 import {formatOffset,formatTime,verifyEvidenceDigest} from './result-format.js'
-import {appearanceApi,appearanceJson,uploadAppearance,validateAppearance,validBox} from './appearance-client.js'
+import {appearanceApi,appearanceJson,uploadAppearance,validateAppearance,validBox,selectedAppearanceProfile} from './appearance-client.js'
 import {chineseMessage} from './chinese-copy.js'
 import {semanticStatus} from './appearance-client.js'
 
@@ -61,11 +61,12 @@ export default function ImageSearch({embedded=false,initialFile=null,onUnauthent
   async function search(event){
     event.preventDefault();if(!file||!size||!validBox(box,size.width,size.height)||!capabilities)return
     reset();setError('');const controller=new AbortController();active.current=controller;setBusy(true)
-    const expected={id:crypto.randomUUID(),profile:capabilities.profile_sha256,type,image:null}
+    const expected={id:crypto.randomUUID(),profile:null,type,image:null}
     try{
+      const selection=selectedAppearanceProfile(capabilities,type);expected.profile=selection.profile_sha256
       const bytes=await file.arrayBuffer();expected.image=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('')
       if(start&&end&&new Date(start)>new Date(end))throw new Error('开始时间不能晚于结束时间。')
-      const metadata={request_id:expected.id,semantic_assistance:semantic,media_type:file.type,bbox_xyxy:box,target_type:type,profile:capabilities.profile.profile,profile_sha256:expected.profile,cameras:camera?[camera]:[],start:start?new Date(start).toISOString():null,end:end?new Date(end).toISOString():null}
+      const metadata={request_id:expected.id,semantic_assistance:semantic,media_type:file.type,bbox_xyxy:box,target_type:type,profile:selection.profile.profile,profile_sha256:expected.profile,cameras:camera?[camera]:[],start:start?new Date(start).toISOString():null,end:end?new Date(end).toISOString():null}
       const form=new FormData();form.append('metadata',JSON.stringify(metadata));form.append('file',file)
       const value=validateAppearance(await uploadAppearance(form,controller.signal),expected)
       if(active.current!==controller){closeSnapshot(expected);return}snapshot.current=expected;setResult(value);setPage(0);setHistory([0])

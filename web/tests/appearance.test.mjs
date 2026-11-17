@@ -1,8 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {validBox,validateAppearance,appearanceJson,uploadAppearance,semanticStatus} from '../src/appearance-client.js'
+import {validBox,validateAppearance,appearanceJson,uploadAppearance,semanticStatus,selectedAppearanceProfile} from '../src/appearance-client.js'
 
 const id='12345678-1234-1234-1234-123456789012',profile='1'.repeat(64),image='2'.repeat(64)
+
+test('图片检索按人车独立绑定选模型，旧目录兼容，类型冲突不静默回退',()=>{
+  const legacy={profile:{profile:'legacy'},profile_sha256:profile}
+  assert.equal(selectedAppearanceProfile(legacy,'vehicle').profile.profile,'legacy')
+  const person={profile:{profile:'person-reid',target_types:['person']},profile_sha256:'a'.repeat(64)}
+  const vehicle={profile:{profile:'vehicle-reid',target_types:['vehicle']},profile_sha256:'b'.repeat(64)}
+  const capabilities={...legacy,profiles_by_type:{person,vehicle},active_by_type:{person:'person-reid',vehicle:'vehicle-reid'}}
+  assert.equal(selectedAppearanceProfile(capabilities,'person').profile_sha256,person.profile_sha256)
+  assert.equal(selectedAppearanceProfile(capabilities,'vehicle').profile_sha256,vehicle.profile_sha256)
+  assert.throws(()=>selectedAppearanceProfile({...capabilities,profiles_by_type:{vehicle}},'person'),/模型配置/)
+  assert.throws(()=>selectedAppearanceProfile({...capabilities,profiles_by_type:{person:vehicle,vehicle}},'person'),/模型配置/)
+})
 const expected={id,profile,image,type:'vehicle'}
 const response=()=>({schema_version:'appearance-results-v1',query_id:id,summary:{profile_sha256:profile,image_sha256:image,target_type:'vehicle'},items:[{observation_id:id,frame_id:id,target_id:id,record_version:1,camera_id:'recording-01',target_type:'vehicle',image_sha256:image,image_width:1280,image_height:720,bbox_xyxy:[0,0,100,100],similarity:.9,sightings:2,period:{clock:'relative_media',start_ms:0,end_ms:1000,association:'local_geometry_candidate'}}],offset:0,total_candidate_periods:1,has_more:false,next_offset:null})
 

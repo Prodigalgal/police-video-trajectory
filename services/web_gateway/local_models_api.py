@@ -16,7 +16,7 @@ class LocalBindings(BaseModel):
     request_id:UUID
     expected_revision:int=Field(ge=0,lt=9007199254740991,strict=True)
     base_sha256:str=Field(pattern=r'^[a-f0-9]{64}$')
-    bindings:dict[Literal['license_plate','text_ocr','appearance'],StrictStr|None]=Field(min_length=1,max_length=2)
+    bindings:dict[Literal['license_plate','text_ocr','appearance','person','vehicle'],StrictStr|None]=Field(min_length=1,max_length=3)
 
     @field_validator('bindings')
     @classmethod
@@ -58,15 +58,20 @@ def mount_local_models(app,cfg,authenticated,origin_ok):
     @app.put(public+'/{kind}')
     async def put(kind:Literal['processing','appearance'],body:LocalBindings,request:Request):
         proxy.authorize(request,write=True,admin=True)
-        expected={'license_plate','text_ocr'} if kind=='processing' else {'appearance'}
-        if body.bindings.keys()!=expected or kind=='appearance' and body.bindings['appearance'] is None:raise HTTPException(422,'模型用途绑定无效')
+        valid=(body.bindings.keys()=={'license_plate','text_ocr'} if kind=='processing' else body.bindings.keys() in ({'appearance'},{'appearance','person','vehicle'}) and all(body.bindings.values()))
+        if not valid:raise HTTPException(422,'模型用途绑定无效')
         if kind=='appearance':
             response=await proxy.call(request,'GET',internal,admin=True)
             if response.status_code!=200:return response
             catalog=next((entry for entry in json.loads(response.body).get('catalogs',[]) if entry.get('id')=='appearance'),{})
-            profile=next((entry for entry in catalog.get('profiles',[]) if entry.get('profile')==body.bindings['appearance']),None)
             installed=await installed_profiles()
-            if not catalog.get('available') or profile is None or installed.get(profile['profile'])!=profile['sha256']:
-                return JSONResponse({'code':'appearance_model_not_installed'},status_code=422,headers={'Cache-Control':'no-store'})
+            for purpose,identity in body.bindings.items():
+                profile=next((entry for entry in catalog.get('profiles',[]) if entry.get('profile')==identity),None)
+                if not catalog.get('available') or profile is None or installed.get(profile['profile'])!=profile['sha256']:
+                    return JSONResponse({'code':'appearance_model_not_installed'},status_code=422,headers={'Cache-Control':'no-store'})
+                supported=profile.get('target_types',['person','vehicle'])
+                required=['person','vehicle'] if purpose=='appearance' else [purpose]
+                if any(target not in supported for target in required):
+                    return JSONResponse({'code':'appearance_target_type_unsupported'},status_code=422,headers={'Cache-Control':'no-store'})
         return await proxy.call(request,'PUT',internal+'/'+kind,admin=True,body={'requestId':str(body.request_id),
             'expectedRevision':body.expected_revision,'baseSha256':body.base_sha256,'bindings':body.bindings})

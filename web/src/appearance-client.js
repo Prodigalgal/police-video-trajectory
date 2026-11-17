@@ -2,7 +2,7 @@ import {readSearchResponse} from './search-response.js'
 
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 const sha=/^[a-f0-9]{64}$/
-const errors={appearance_disabled:'以图搜图尚未启用。',appearance_catalog_unavailable:'外观模型目录暂不可用，请联系管理员。',appearance_profile_conflict:'模型配置已变化，请刷新后重新搜索。',appearance_scope_forbidden:'所选点位不在当前可查范围。',appearance_query_expired:'本次搜索已过期，请重新上传搜索。',appearance_query_unavailable:'本次搜索已不可用，请重新搜索。',appearance_scope_changed:'可查范围已变化，请重新搜索。',appearance_request_conflict:'搜索请求与原条件不一致，请重新搜索。',appearance_scope_too_large:'当前候选范围过大，请限定点位或已核实时间后重试。',appearance_query_limit:'保留的搜索过多，请关闭旧搜索后重试。',appearance_timeout:'本次图像处理超时，请稍后重试。',appearance_search_timeout:'检索耗时过长，请缩小范围后重试。',appearance_scan_conflict:'索引扫描正在更新，请稍后刷新。',appearance_queue_full:'外观索引队列已满，请等待消费后重试。',appearance_retry_conflict:'该任务状态已变化，请刷新后重试。',unauthorized:'登录已失效，请重新登录。'}
+const errors={appearance_target_type_unsupported:'所选模型不支持当前目标类型。',appearance_disabled:'以图搜图尚未启用。',appearance_catalog_unavailable:'外观模型目录暂不可用，请联系管理员。',appearance_profile_conflict:'模型配置已变化，请刷新后重新搜索。',appearance_scope_forbidden:'所选点位不在当前可查范围。',appearance_query_expired:'本次搜索已过期，请重新上传搜索。',appearance_query_unavailable:'本次搜索已不可用，请重新搜索。',appearance_scope_changed:'可查范围已变化，请重新搜索。',appearance_request_conflict:'搜索请求与原条件不一致，请重新搜索。',appearance_scope_too_large:'当前候选范围过大，请限定点位或已核实时间后重试。',appearance_query_limit:'保留的搜索过多，请关闭旧搜索后重试。',appearance_timeout:'本次图像处理超时，请稍后重试。',appearance_search_timeout:'检索耗时过长，请缩小范围后重试。',appearance_scan_conflict:'索引扫描正在更新，请稍后刷新。',appearance_queue_full:'外观索引队列已满，请等待消费后重试。',appearance_retry_conflict:'该任务状态已变化，请刷新后重试。',unauthorized:'登录已失效，请重新登录。'}
 
 export async function appearanceJson(response){
   const value=await response.json()
@@ -15,6 +15,18 @@ export async function appearanceApi(path,options={}){
 }
 export async function uploadAppearance(form,signal){
   return readSearchResponse(await fetch('/api/v1/appearance/queries',{method:'POST',body:form,headers:{Accept:'text/event-stream'},signal}),appearanceJson)
+}
+export function selectedAppearanceProfile(capabilities,type){
+  const fail=()=>{throw new Error('当前目标类型的外观模型配置已变化，请刷新索引后重试。')}
+  if(!['person','vehicle'].includes(type))fail()
+  const selection=capabilities?.profiles_by_type===undefined
+    ?{profile:capabilities?.profile,profile_sha256:capabilities?.profile_sha256}
+    :capabilities.profiles_by_type?.[type]
+  if(!selection||!sha.test(selection.profile_sha256)||!selection.profile||!/^[A-Za-z0-9_-]{1,80}$/.test(selection.profile.profile))fail()
+  const targets=selection.profile.target_types
+  if(targets!==undefined&&(!Array.isArray(targets)||!targets.includes(type)))fail()
+  if(capabilities.active_by_type?.[type]!==undefined&&capabilities.active_by_type[type]!==selection.profile.profile)fail()
+  return selection
 }
 export function validBox(box,width,height){
   return Array.isArray(box)&&box.length===4&&box.every(Number.isFinite)&&Number.isInteger(width)&&Number.isInteger(height)&&width>0&&height>0&&box[0]>=0&&box[1]>=0&&box[2]<=width&&box[3]<=height&&box[2]-box[0]>=12&&box[3]-box[1]>=12

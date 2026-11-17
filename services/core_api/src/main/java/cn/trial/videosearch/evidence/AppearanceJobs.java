@@ -33,25 +33,54 @@ public class AppearanceJobs {
     }
     public Map<String,Object> capabilities(){
         requireEnabled();var snapshot=catalog.current();var profile=snapshot.selected();
+        var perType=new LinkedHashMap<String,Object>();var activeByType=new LinkedHashMap<String,String>();
+        for(String type:List.of("person","vehicle")){
+            var selected=snapshot.selected(type);activeByType.put(type,selected.id());
+            perType.put(type,Map.of("profile",selected.definition(),"profile_sha256",selected.sha256()));
+        }
         var stats=db.queryForList("""
             SELECT j.state,count(*) AS count FROM appearance_jobs j JOIN observations o ON o.observation_id=j.observation_id
-            WHERE j.profile_sha256=? AND NOT o.deleted AND o.record_version=j.record_version GROUP BY j.state
-            """,profile.sha256());var counts=new LinkedHashMap<String,Object>();stats.forEach(row->counts.put((String)row.get("state"),row.get("count")));
-        var cameras=db.queryForList("SELECT camera_id,display_name FROM cameras WHERE camera_id IN ("+String.join(",",Collections.nCopies(search.readableCameras().size(),"?"))+") ORDER BY display_name,camera_id",search.readableCameras().toArray());
-        return Map.of("schema_version","appearance-capabilities-v1","profile",profile.definition(),"profile_sha256",profile.sha256(),"catalog_revision",snapshot.revision(),"index_backend","bounded_exact_cosine_v1","counts",counts,"claims_enabled",control("appearance_claims"),"production_enabled",control("appearance_production"),"cameras",cameras);
+            WHERE ((j.target_type='person' AND j.profile_sha256=?) OR (j.target_type='vehicle' AND j.profile_sha256=?)) AND NOT o.deleted AND o.record_version=j.record_version GROUP BY j.state
+            """,snapshot.selected("person").sha256(),snapshot.selected("vehicle").sha256());var counts=new LinkedHashMap<String,Object>();stats.forEach(row->counts.put((String)row.get("state"),row.get("count")));
+        var readable=search.readableCameras();var cameras=readable.isEmpty()?List.<Map<String,Object>>of():db.queryForList("SELECT camera_id,display_name FROM cameras WHERE camera_id IN ("+String.join(",",Collections.nCopies(readable.size(),"?"))+") ORDER BY display_name,camera_id",readable.toArray());
+        var value=new LinkedHashMap<String,Object>();value.put("schema_version","appearance-capabilities-v1");value.put("profile",profile.definition());value.put("profile_sha256",profile.sha256());value.put("catalog_revision",snapshot.revision());value.put("index_backend","bounded_exact_cosine_v1");value.put("counts",counts);value.put("claims_enabled",control("appearance_claims"));value.put("production_enabled",control("appearance_production"));value.put("cameras",cameras);value.put("active_by_type",activeByType);value.put("profiles_by_type",perType);return value;
     }
-    public synchronized Map<String,Object> produce(int limit){
-        requireEnabled();if(limit<1||limit>200)throw new IllegalArgumentException();var profile=catalog.current().selected();
+    private int productionRound;
+    public synchronized Map<String,Object> produce(int limit){return produce(limit,null);}
+    public synchronized Map<String,Object> produce(int limit,List<String> requestedProfiles){
+        requireEnabled();if(limit<1||limit>200)throw new IllegalArgumentException();var snapshot=catalog.current();
+        var typesByProfile=new LinkedHashMap<String,List<String>>();
+        if(requestedProfiles==null||requestedProfiles.isEmpty()){
+            for(String type:List.of("person","vehicle"))typesByProfile.computeIfAbsent(snapshot.selected(type).id(),ignored->new ArrayList<>()).add(type);
+        }else{
+            if(requestedProfiles.size()>3||new HashSet<>(requestedProfiles).size()!=requestedProfiles.size())throw new IllegalArgumentException();
+            for(String id:requestedProfiles){
+                var selected=snapshot.profiles().get(id);if(selected==null)throw new InputRejected(422,"model_profile_unavailable");
+                typesByProfile.put(id,List.of("person","vehicle").stream().filter(selected::supports).toList());
+            }
+        }
+        var ids=new ArrayList<>(typesByProfile.keySet());Collections.rotate(ids,-Math.floorMod(productionRound++,ids.size()));
+        var runs=new ArrayList<Map<String,Object>>();int queued=0,reused=0,skipped=0,scanned=0;boolean full=false,complete=true;
+        for(int i=0;i<ids.size();i++){
+            int budget=limit/ids.size()+(i<limit%ids.size()?1:0);if(budget==0){complete=false;continue;}
+            String id=ids.get(i);var run=produceProfile(snapshot.profiles().get(id),typesByProfile.get(id),budget);runs.add(run);
+            queued+=((Number)run.get("queued")).intValue();reused+=((Number)run.get("reused")).intValue();skipped+=((Number)run.get("skipped")).intValue();scanned+=((Number)run.get("scanned")).intValue();
+            full|=Boolean.TRUE.equals(run.get("queue_full"));complete&=Boolean.TRUE.equals(run.get("scan_complete"));
+        }
+        var value=new LinkedHashMap<String,Object>();value.put("queued",queued);value.put("reused",reused);value.put("skipped",skipped);value.put("scanned",scanned);value.put("scan_complete",complete);value.put("queue_full",full);value.put("profile_sha256",snapshot.selected().sha256());value.put("profiles",runs);value.put("catalog_revision",snapshot.revision());return value;
+    }
+    private Map<String,Object> produceProfile(AppearanceCatalog.Profile profile,List<String> targetTypes,int limit){
+        if(search.readableCameras().isEmpty())return Map.of("queued",0,"reused",0,"skipped",0,"scanned",0,"scan_complete",true,"queue_full",false,"profile_sha256",profile.sha256());
         tx.executeWithoutResult(status->{lock();register(profile);db.update("INSERT INTO appearance_scan_cursors(profile_sha256) VALUES(?) ON CONFLICT DO NOTHING",profile.sha256());});
         UUID after=db.queryForObject("SELECT last_observation_id FROM appearance_scan_cursors WHERE profile_sha256=?",UUID.class,profile.sha256());
-        var args=new ArrayList<Object>();args.addAll(search.readableCameras());if(after!=null)args.add(after);args.add(limit);
+        var args=new ArrayList<Object>(targetTypes);args.addAll(search.readableCameras());if(after!=null)args.add(after);args.add(limit);
         String cameras=String.join(",",Collections.nCopies(search.readableCameras().size(),"?"));
         var rows=db.queryForList("""
             SELECT o.observation_id,o.record_version FROM observations o JOIN frames f ON f.frame_id=o.frame_id
             JOIN processing_tasks t ON t.task_id=f.task_id JOIN sources s ON s.source_id=t.source_id
             JOIN detected_targets d ON d.frame_id=f.frame_id AND d.observation_ordinal=o.object_ordinal
             WHERE NOT o.deleted AND f.analysis_state='completed' AND o.camera_id=s.camera_id AND o.target_type=d.object_type
-            """+" AND o.camera_id IN ("+cameras+")"+(after==null?"":" AND o.observation_id>?")+" ORDER BY o.observation_id LIMIT ?",args.toArray());
+            """+" AND o.target_type IN ("+String.join(",",Collections.nCopies(targetTypes.size(),"?"))+") AND o.camera_id IN ("+cameras+")"+(after==null?"":" AND o.observation_id>?")+" ORDER BY o.observation_id LIMIT ?",args.toArray());
         var prepared=new LinkedHashMap<UUID,Map<String,Object>>();int skipped=0;
         for(var row:rows){try{prepared.put((UUID)row.get("observation_id"),sources.current((UUID)row.get("observation_id"),((Number)row.get("record_version")).longValue()));}
             catch(InputRejected rejected){if(rejected.status!=404&&rejected.status!=409)throw rejected;skipped++;}}
@@ -134,6 +163,7 @@ public class AppearanceJobs {
     public Map<String,Object> complete(Complete body){
         requireEnabled();if(body==null||body.jobId()==null)throw new IllegalArgumentException();var row=owned(body.jobId(),body.workerId(),body.generation(),false,true);
         var profile=AppearanceCatalog.parse(parse(row,"definition_text"));AppearanceVectors.validate(body.vector(),profile.dimensions());
+        if(!profile.supports((String)row.get("target_type")))throw new InputRejected(422,"appearance_target_type_unsupported");
         if(!row.get("source_sha256").equals(body.sourceSha256())||!row.get("profile_sha256").equals(body.profileSha256()))throw new InputRejected(409,"appearance_source_changed");
         var descriptor=parse(row,"descriptor_text");sources.image(descriptor);
         String sha=CanonicalJson.encode(body.vector(),32768).sha256();

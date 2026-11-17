@@ -1,4 +1,4 @@
--- Application version: 1.0.0. Removes same-session recording retention and nearby-frame browsing.
+-- Application version: 1.1.0. Removes same-session recording retention and nearby-frame browsing.
 --
 -- The application no longer retains recordings next to valid frames. What stays is
 -- the frame's own position in the source stream - capture_outbox.media_offset_ms /

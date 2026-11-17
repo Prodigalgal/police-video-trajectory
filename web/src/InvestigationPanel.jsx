@@ -3,6 +3,7 @@ import {FloatingNotice} from './Feedback.jsx'
 import React,{useEffect,useRef,useState} from 'react'
 import {businessApi,validateTimeline,validateSuggestions,associationReason} from './investigation-client.js'
 import {formatOffset,formatTime} from './result-format.js'
+import MtmcPanel from './MtmcPanel.jsx'
 
 export default function InvestigationPanel({detail,onNavigate,onUnauthenticated}){
   const [enabled,setEnabled]=useState(false),[tab,setTab]=useState(''),[data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false),[reload,setReload]=useState(0)
@@ -10,7 +11,7 @@ export default function InvestigationPanel({detail,onNavigate,onUnauthenticated}
   useEffect(()=>{const abort=new AbortController();businessApi('/api/v1/features',{signal:abort.signal}).then(value=>{if(!abort.signal.aborted)setEnabled(value.investigation===true)}).catch(failure=>{if(!abort.signal.aborted&&failure.unauthorized)callbacks.current.onUnauthenticated()});return()=>abort.abort()},[])
   useEffect(()=>{
     const abort=new AbortController();setData(null);setError('')
-    if(!tab||!enabled)return()=>abort.abort()
+    if(!tab||tab==='mtmc'||!enabled){setLoading(false);return()=>abort.abort()}
     setLoading(true)
     const path=`/api/v1/investigation/observations/${detail.observation_id}/${tab}?expected_version=${detail.record_version}`
     businessApi(path,{signal:abort.signal}).then(value=>tab==='timeline'?validateTimeline(value,detail):validateSuggestions(value,detail)).then(value=>{if(!abort.signal.aborted)setData({tab,value})}).catch(failure=>{if(!abort.signal.aborted){setError(chineseMessage(failure.message));if(failure.unauthorized)callbacks.current.onUnauthenticated()}}).finally(()=>{if(!abort.signal.aborted)setLoading(false)})
@@ -19,7 +20,8 @@ export default function InvestigationPanel({detail,onNavigate,onUnauthenticated}
   if(!enabled)return null
   const current=data?.tab===tab?data.value:null
   return <section className="evidence-context" aria-label="时序与关联线索"><div className="context-heading"><h3>时序与关联</h3><button type="button" className="text-button" onClick={()=>setTab('')}>收起</button></div>
-    <div className="investigation-tabs"><button type="button" className="admin-button secondary" aria-pressed={tab==='timeline'} onClick={()=>setTab('timeline')}>前后时序线索</button><button type="button" className="admin-button secondary" aria-pressed={tab==='candidates'} onClick={()=>setTab('candidates')}>跨点位候选</button></div>
+    <div className="investigation-tabs"><button type="button" className="admin-button secondary" aria-pressed={tab==='mtmc'} onClick={()=>setTab('mtmc')}>跨镜关联与方案对比</button><button type="button" className="admin-button secondary" aria-pressed={tab==='timeline'} onClick={()=>setTab('timeline')}>前后时序线索</button><button type="button" className="admin-button secondary" aria-pressed={tab==='candidates'} onClick={()=>setTab('candidates')}>属性时间建议</button></div>
+    {tab==='mtmc'&&<MtmcPanel detail={detail} onNavigate={onNavigate} onUnauthenticated={onUnauthenticated}/>}
     {loading&&<p role="status">正在整理关联证据…</p>}{error&&<FloatingNotice className="notice error" role="alert">{error}<button type="button" className="text-button" onClick={()=>setReload(value=>value+1)}>重新读取</button></FloatingNotice>}
     {current?.truncated&&<p className="result-note">仅展示当前窗口内的有限候选，可缩小时间范围继续查看。</p>}
     {tab==='timeline'&&current&&<><p className="result-note">按同一读取会话的局部跟踪候选分段；不跨间断补齐录像或确认身份。</p>{!current.clock_available&&<p className="result-note">该记录缺少可比较的片内时钟，仅展示当前观测。</p>}

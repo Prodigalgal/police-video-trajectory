@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {bindingCommand,localCatalogs} from '../src/local-models.js'
+import {bindingCommand,draftBindings,localCatalogs} from '../src/local-models.js'
 const processing={id:'processing',available:true,source_current:true,revision:0,base_sha256:'a'.repeat(64),bindings:{license_plate:'plate',text_ocr:null},profiles:[{profile:'plate',sha256:'b'.repeat(64),capabilities:['license_plate']}]}
 const appearance={id:'appearance',available:true,source_current:true,revision:0,base_sha256:'c'.repeat(64),bindings:{appearance:'visual'},profiles:[{profile:'visual',sha256:'d'.repeat(64),dimensions:384,installed:true}]}
 test('停用只提交用途选择与版本，不提交端点或凭据',()=>{
@@ -23,4 +23,17 @@ test('登记但缺少已校验权重的配置可以显示，不能保存为活�
   const missing={...appearance,profiles:[{...appearance.profiles[0],installed:false}]}
   assert.equal(localCatalogs({schema_version:'local-model-bindings-v1',catalogs:[processing,missing]})[1].profiles[0].installed,false)
   assert.throws(()=>bindingCommand(missing,missing.bindings,'request'),/权重校验失败/)
+})
+
+test('人车模型原子热切换兼容旧目录，拒绝串用专用模型与未安装权重',()=>{
+  const person={profile:'person-reid',sha256:'e'.repeat(64),dimensions:512,installed:true,target_types:['person']}
+  const vehicle={profile:'vehicle-reid',sha256:'f'.repeat(64),dimensions:768,installed:true,target_types:['vehicle']}
+  const expanded={...appearance,profiles:[...appearance.profiles,person,vehicle]}
+  assert.deepEqual(draftBindings(appearance),{appearance:'visual',person:'visual',vehicle:'visual'})
+  const bindings={appearance:'visual',person:'person-reid',vehicle:'vehicle-reid'}
+  assert.deepEqual(bindingCommand(expanded,bindings,'request').bindings,bindings)
+  assert.equal(localCatalogs({schema_version:'local-model-bindings-v1',catalogs:[processing,{...expanded,bindings}]})[1].bindings.vehicle,'vehicle-reid')
+  assert.throws(()=>bindingCommand(expanded,{...bindings,vehicle:'person-reid'},'request'),/支持该用途/)
+  assert.throws(()=>bindingCommand({...expanded,profiles:[...appearance.profiles,person,{...vehicle,installed:false}]},bindings,'request'),/未安装/)
+  assert.throws(()=>localCatalogs({schema_version:'local-model-bindings-v1',catalogs:[processing,{...expanded,profiles:[{...person,dimensions:2048}]}]}))
 })

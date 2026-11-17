@@ -7,7 +7,7 @@ from typing import Literal
 from uuid import UUID
 from fastapi import HTTPException,Query,Request
 from fastapi.responses import JSONResponse,StreamingResponse
-from pydantic import BaseModel,ConfigDict,Field
+from pydantic import BaseModel,ConfigDict,Field,field_validator
 from starlette.formparsers import MultiPartException
 from services.ai_gateway.binary_input import MAX_IMAGE_BYTES,MAX_METADATA_BYTES,read_image_form
 from .business_proxy import BusinessProxy
@@ -30,6 +30,14 @@ class ImageQuery(BaseModel):
 class Produce(BaseModel):
     model_config=ConfigDict(extra='forbid')
     limit:int=Field(default=100,ge=1,le=200,strict=True)
+    profiles:list[str]|None=Field(default=None,max_length=3)
+
+    @field_validator('profiles')
+    @classmethod
+    def profile_ids(cls,value):
+        import re
+        if value is not None and (len(set(value))!=len(value) or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,80}',identity) for identity in value)):raise ValueError('外观模型标识无效')
+        return value
 
 
 class Control(BaseModel):
@@ -90,6 +98,7 @@ def mount_appearance(app,cfg,authenticated,origin_ok):
         try:
             definition=Catalog(cfg.get('appearance_catalog_file','')).definition(metadata.profile)
             if definition is None or definition.sha256!=metadata.profile_sha256:raise HTTPException(409,'外观模型配置已更新，请刷新后重试')
+            if not definition.supports(metadata.target_type):raise HTTPException(422,'所选外观模型不支持当前目标类型')
             if app.state.appearance_runner is None:app.state.appearance_runner=NativeRunner(cfg.get('appearance_model_dir',''),module='services.appearance.process')
         except (OSError,ValueError):raise HTTPException(503,'本地外观模型尚未完整配置') from None
         started=request.scope.get('binary_request_started',time.monotonic())
@@ -134,7 +143,19 @@ def mount_appearance(app,cfg,authenticated,origin_ok):
     async def close(identity:UUID,request:Request):return await proxy.call(request,'DELETE',f'/internal/appearance/queries/{identity}')
 
     @app.post('/api/admin/appearance/produce')
-    async def produce(body:Produce,request:Request):return await proxy.call(request,'POST','/internal/appearance/produce',body=body.model_dump(),admin=True)
+    async def produce(body:Produce,request:Request):
+        proxy.authorize(request,write=True,admin=True)
+        if body.profiles:
+            from services.appearance.catalog import Catalog,InstalledModels
+            def verify():
+                snapshot=Catalog(cfg.get('appearance_catalog_file','')).current()
+                wanted=[profile for profile in snapshot.profiles if profile.profile in body.profiles]
+                available=InstalledModels(cfg.get('appearance_model_dir','')).available(wanted)
+                return {profile.profile for profile in available}==set(body.profiles)
+            try:ready=await asyncio.to_thread(verify)
+            except (OSError,ValueError,TypeError):ready=False
+            if not ready:return JSONResponse({'code':'appearance_model_not_installed'},status_code=422,headers={'Cache-Control':'no-store'})
+        return await proxy.call(request,'POST','/internal/appearance/produce',body=body.model_dump(exclude_none=True),admin=True)
 
     @app.post('/api/admin/appearance/controls')
     async def control(body:Control,request:Request):return await proxy.call(request,'POST','/internal/appearance/controls',body=body.model_dump(),admin=True)

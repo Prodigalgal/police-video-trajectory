@@ -19,6 +19,7 @@ LOG=logging.getLogger('appearance-worker')
 
 def validate_job(job):
     definition=Definition.model_validate(job['definition']);descriptor=job['descriptor']
+    if not definition.supports(descriptor.get('target_type')):raise ValueError('appearance target type unsupported')
     if definition.sha256!=job['profile_sha256'] or hashlib.sha256(canonical(descriptor)).hexdigest()!=job['source_sha256']:raise ValueError('appearance source binding differs')
     if type(job['lease_generation']) is not int or job['lease_generation']<1:raise ValueError('invalid lease generation')
     return definition

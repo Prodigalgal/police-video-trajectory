@@ -81,6 +81,9 @@ tests/*
 !tests/test_pipeline_features_api.py
 !tests/test_local_models_api.py
 !tests/test_offline_image_delivery.py
+!tests/test_mtmc_api.py
+!tests/test_reid_models_api.py
+!tests/test_retrieval_metrics.py
 web/tests/fixtures/
 web/tests/clue-client.test.mjs
 services/core_api/src/test/resources/fixtures/
