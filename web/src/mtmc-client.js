@@ -67,6 +67,10 @@ export function validateMtmc(value,expected){
     if(period.clock==='relative_media'&&(!Number.isSafeInteger(period.start_ms)||period.start_ms<0||!Number.isSafeInteger(period.end_ms)||period.end_ms<period.start_ms))fail()
     if(period.clock==='verified_source'&&(!Number.isFinite(Date.parse(period.start_time))||!Number.isFinite(Date.parse(period.end_time))||Date.parse(period.end_time)<Date.parse(period.start_time)))fail()
     for(const sighting of item.sightings){validateObservation(sighting.observation);if(sighting.observation.camera_id!==item.representative.camera_id||sighting.observation.target_type!==expected.target_type)fail()}
+    if(item.source_locator!=null){
+      if(typeof item.source_locator!=='object')fail()
+      for(const key of ['platform_id','device_id','channel_id'])if(item.source_locator[key]!=null&&typeof item.source_locator[key]!=='string')fail()
+    }
     representatives.add(item.representative.observation_id)
   }
   return value
@@ -82,8 +86,9 @@ export function mtmcPeriod(period){
 }
 
 export function mtmcSourcePosition(item){
-  if(item.period?.clock==='verified_source')return mtmcPeriod(item.period)
-  const offsets=item.sightings?.map(shot=>shot.clock?.media_offset_ms)||[]
-  if(offsets.length&&offsets.every(value=>Number.isSafeInteger(value)&&value>=0))return `源录像偏移 ${formatOffset(Math.min(...offsets))} — ${formatOffset(Math.max(...offsets))}`
-  return mtmcPeriod(item.period)
+  const prefix=item.period?.clock==='verified_source'?mtmcPeriod(item.period):(()=>{
+    const offsets=item.sightings?.map(shot=>shot.clock?.media_offset_ms)||[]
+    return offsets.length&&offsets.every(value=>Number.isSafeInteger(value)&&value>=0)?`源录像偏移 ${formatOffset(Math.min(...offsets))} — ${formatOffset(Math.max(...offsets))}`:mtmcPeriod(item.period)
+  })()
+  return item.source_locator?.platform_id?`${prefix} · 上级通道 ${item.source_locator.platform_id}/${item.source_locator.channel_id||'-'}`:prefix
 }

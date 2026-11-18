@@ -19,6 +19,7 @@ test('缺特征方案不能伪造候选，未知时钟不推算拍摄时间',()=
   assert.equal(mtmcPeriod({clock:'unknown',start_ms:1234}),'来源位置待核实')
   assert.match(mtmcPeriod({clock:'relative_media',start_ms:1000,end_ms:2000}),/会话位置 00:00:01/)
   assert.match(mtmcSourcePosition({period:{clock:'unknown'},sightings:[{clock:{media_offset_ms:5000}},{clock:{media_offset_ms:8000}}]}),/源录像偏移 00:00:05 — 00:00:08/)
+  assert.match(mtmcSourcePosition({period:{clock:'unknown'},source_locator:{platform_id:'wvp-nj',channel_id:'3402001'},sightings:[{clock:{media_offset_ms:5000}}]}),/上级通道 wvp-nj\/3402001/)
   assert.equal(mtmcSourcePosition({period:{clock:'unknown'},sightings:[{clock:{media_offset_ms:5000}},{clock:{media_offset_ms:null}}]}),'来源位置待核实')
 })
 test('查询只提交有界模型选择，不接收任意端点或重复模型',()=>{

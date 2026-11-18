@@ -80,6 +80,8 @@ def verify(root=ROOT, *, web_dist=False, jar=None):
     found['migration_034']=re.search(r'Application version: ([0-9.]+)\.',remove_recording).group(1)
     query_mtmc=(root/'services/core_api/src/main/resources/db/035-query-mtmc.sql').read_text()
     found['migration_035']=re.search(r'Application version: ([0-9.]+)\.',query_mtmc).group(1)
+    platform_mot=(root/'services/core_api/src/main/resources/db/036-video-platform-and-mot.sql').read_text()
+    found['migration_036']=re.search(r'Application version: ([0-9.]+)\.',platform_mot).group(1)
     found['cluster_template']=json.loads((root/'deploy/cluster/config.example.json').read_text())['version']
     if web_dist:
         found['web_artifact'] = json.loads((root / 'web/dist/version.json').read_text())['version']

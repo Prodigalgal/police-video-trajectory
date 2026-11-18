@@ -85,6 +85,7 @@ async def prepare_selected(settings, spool):
     if getattr(settings,'scene_motion_context','off')=='observe':planner_options['short_motion_mode']='observe'
     if getattr(settings,'target_short_motion_strategy','legacy')!='legacy':planner_options['short_motion_strategy']=settings.target_short_motion_strategy
     if getattr(settings,'target_stationary_filter','off')!='off':planner_options['stationary_filter_mode']=settings.target_stationary_filter
+    if getattr(settings,'target_tracker_mode','legacy')!='legacy':planner_options['tracker_mode']=settings.target_tracker_mode
     if getattr(settings,'specialist_selection_mode','off')!='off':planner_options['specialist_selection_mode']=settings.specialist_selection_mode
     if getattr(settings,'processing_catalog_file',''):planner_options['processing_catalog_file']=settings.processing_catalog_file
     if getattr(settings,'specialist_models_root',''):planner_options['specialist_models_root']=settings.specialist_models_root

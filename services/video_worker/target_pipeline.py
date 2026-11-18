@@ -38,9 +38,16 @@ class CandidateTracker:
 
 
 class TargetPlanner:
-    def __init__(self, detector, threshold=.35,quality_mode='off',*,motion_mode='off',duplicate_mode='off',short_motion_mode='off',specialist_selection_mode='off',processing_catalog_file='',specialist_models_root='',short_motion_strategy='legacy',stationary_filter_mode='off'):
+    def __init__(self, detector, threshold=.35,quality_mode='off',*,motion_mode='off',duplicate_mode='off',short_motion_mode='off',specialist_selection_mode='off',processing_catalog_file='',specialist_models_root='',short_motion_strategy='legacy',stationary_filter_mode='off',tracker_mode='legacy'):
         self.detector, self.threshold = detector, threshold
-        self.tracker = CandidateTracker()
+        if tracker_mode not in {'legacy','bytetrack','ocsort'}:
+            raise ValueError('invalid target tracker mode')
+        self.tracker_mode=tracker_mode
+        if tracker_mode=='legacy':
+            self.tracker = CandidateTracker()
+        else:
+            from services.scene_analysis.mot_trackers import MotTrackerManager
+            self.tracker = MotTrackerManager(tracker_mode,high_thresh=threshold)
         self.specialist_runtime = None
         if specialist_selection_mode != 'off' or processing_catalog_file:
             from .selection_runtime import SelectionRuntime
@@ -106,10 +113,11 @@ class TargetPlanner:
             except (ValueError,RuntimeError,KeyError,TypeError):
                 duplicate_metrics={'schema':'vehicle-duplicate-v1','mode':self.duplicate_mode,'state':'unavailable',
                                    'applied':False,'frame_suppression':False}
-        self.tracker.assign(metadata['camera_id'], metadata['scene_run_id'], metadata['media_epoch'],
+        tracking_metrics = self.tracker.assign(metadata['camera_id'], metadata['scene_run_id'], metadata['media_epoch'],
                             metadata['relative_media_ms'], result['targets'])
         detected_targets=list(result['targets'])
         metrics=metadata.get('selection_metrics')
+        if tracking_metrics is not None:metrics={**(metrics or {}),'target_tracking':tracking_metrics}
         if duplicate_metrics is not None:metrics={**(metrics or {}),'target_duplicates':duplicate_metrics}
         activity=metrics.get('activity') if isinstance(metrics,dict) else None
         if activity is not None:

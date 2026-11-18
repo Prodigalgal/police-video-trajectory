@@ -10,6 +10,8 @@ import math
 import cv2
 import numpy as np
 
+from .mot_trackers import VALID_LOCAL_ASSOCIATIONS
+
 SCHEMA='target-readability-v1'
 POLICY={'patch_max_side':192,'patch_min_side':4,'reference_short_side_px':96,
         'weights':{'size':.35,'focus':.30,'exposure':.20,'border':.15}}
@@ -87,7 +89,7 @@ class TargetQualityMemory:
         recommendations=[]
         for target,score in zip(targets,scores):
             track=target.get('track_id');rank=score.get('ranks',{}).get('target_balanced')
-            if not track or target.get('association')!='local_geometry_candidate' or rank is None:
+            if not track or target.get('association') not in VALID_LOCAL_ASSOCIATIONS or rank is None:
                 recommendations.append({'target_id':target.get('target_id'),'reason':'retain_unscored_or_unassociated',
                                         'semantic_change':None});continue
             key=(*context,track);old=self.entries.get(key);box=target['bbox_normalized']

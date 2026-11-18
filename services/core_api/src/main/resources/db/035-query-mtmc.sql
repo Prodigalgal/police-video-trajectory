@@ -1,4 +1,4 @@
--- Application version: 1.1.0. Additive query-driven cross-camera candidate snapshots.
+-- Application version: 1.2.0. Additive query-driven cross-camera candidate snapshots.
 -- Source imagery, vectors and local recordings are not duplicated here.
 CREATE TABLE IF NOT EXISTS mtmc_queries (
  query_id uuid PRIMARY KEY,actor_id text NOT NULL,actor_revision bigint NOT NULL CHECK(actor_revision>0),

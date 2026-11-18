@@ -17,6 +17,14 @@ class TargetPlanTest {
     @Test void preservesExactTargetBinding() {
         var targets=List.of(target());
         assertEquals(targets,TargetPipeline.targets(plan(targets)));
+        for (String assoc : List.of("bytetrack_kalman_v1", "ocsort_momentum_v1")) {
+            var tracked = target();
+            tracked.put("association", assoc);
+            assertEquals(assoc, TargetPipeline.targets(plan(List.of(tracked))).getFirst().get("association"));
+        }
+        var invalidAssoc = target();
+        invalidAssoc.put("association", "unapproved_tracker");
+        assertThrows(IllegalArgumentException.class, () -> TargetPipeline.targets(plan(List.of(invalidAssoc))));
     }
     @Test void rejectsDuplicateIdsAndIncorrectUnits() {
         var item=target();
