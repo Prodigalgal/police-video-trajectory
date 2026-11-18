@@ -100,10 +100,14 @@ class VideoPlatformPostgresIntegrationTest {
         var plat = (Map<?, ?>) platRes.get("platform");
         assertEquals(1L, plat.get("revision"));
         assertEquals(false, plat.get("interoperability_verified"));
-        assertEquals(platRes, platforms.upsertPlatform("wvp-nj-01", new VideoPlatformService.PlatformUpsert(
+        var platReplay = platforms.upsertPlatform("wvp-nj-01", new VideoPlatformService.PlatformUpsert(
             platReq, 0L, "gb28181_cascade", "南京WVP级联", "k8s-secret:wvp-nj-01", "zlm-edge-01",
             "unverified", null, true
-        ), "admin"));
+        ), "admin");
+        assertEquals(
+            cn.trial.videosearch.support.CanonicalJson.encode(platRes, 65536).payload(),
+            cn.trial.videosearch.support.CanonicalJson.encode(platReplay, 65536).payload()
+        );
 
         assertEquals("platform_revision_conflict", assertThrows(AdminService.Rejected.class, () ->
             platforms.upsertPlatform("wvp-nj-01", new VideoPlatformService.PlatformUpsert(
