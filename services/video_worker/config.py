@@ -90,6 +90,7 @@ class Settings:
     scene_activity_evidence:str='legacy'
     target_short_motion_strategy:str='legacy'
     target_stationary_filter:str='off'
+    target_tracker_mode:str='legacy'
 
     @classmethod
     def from_env(cls):
@@ -144,6 +145,7 @@ class Settings:
                    target_motion_mode=get('TARGET_MOTION_MODE','off'),target_duplicate_mode=get('TARGET_DUPLICATE_MODE','off'),
                    scene_motion_context=get('SCENE_MOTION_CONTEXT','off'),
                    target_short_motion_strategy=get('TARGET_SHORT_MOTION_STRATEGY','legacy'),target_stationary_filter=get('TARGET_STATIONARY_FILTER','off'),
+                   target_tracker_mode=get('TARGET_TRACKER_MODE','legacy'),
                    scene_audit_enabled=get('SCENE_AUDIT_ENABLED','0')=='1',scene_audit_seconds=float(get('SCENE_AUDIT_SECONDS','300')),
                    scene_audit_bytes=int(get('SCENE_AUDIT_BYTES',str(64*1024*1024))),scene_audit_entries=int(get('SCENE_AUDIT_ENTRIES','4096')),
                    scene_audit_retention_seconds=float(get('SCENE_AUDIT_RETENTION_SECONDS','86400')),
@@ -208,6 +210,10 @@ class Settings:
             raise ValueError('stationary review requires the bound grid motion strategy')
         if (self.target_motion_mode!='off' or self.target_duplicate_mode!='off') and not self.target_pipeline:
             raise ValueError('target observations require target pipeline')
+        if self.target_tracker_mode not in {'legacy','bytetrack','ocsort'}:
+            raise ValueError('invalid target tracker mode')
+        if self.target_tracker_mode!='legacy' and not self.target_pipeline:
+            raise ValueError('target tracker mode requires target pipeline')
         if self.target_duplicate_mode not in {'off','observe'} and self.target_detector_variant in {'adaptive_1','adaptive_2'}:
             raise ValueError('active duplicate suppression is incompatible with protected adaptive detection')
         if self.target_quality_mode!='off' and not self.target_pipeline:raise ValueError('target quality requires target pipeline')

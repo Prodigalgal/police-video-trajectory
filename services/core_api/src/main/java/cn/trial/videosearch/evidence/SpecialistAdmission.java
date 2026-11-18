@@ -139,7 +139,7 @@ public class SpecialistAdmission {
             if(!(value instanceof String id)||!UUID.fromString(id).toString().equals(id))throw new IllegalArgumentException();
             var target=available.get(id);var candidate=recommendations.get(id);
             if(target==null||candidate==null||!"vehicle".equals(target.get("object_type"))||!Set.of("car","motorcycle","bus","truck").contains(target.get("class_name"))
-                ||!"local_geometry_candidate".equals(target.get("association"))||!Objects.equals(target.get("track_id"),candidate.get("track_id"))||!"selected".equals(candidate.get("decision")))throw new IllegalArgumentException();
+                ||!Set.of("local_geometry_candidate","bytetrack_kalman_v1","ocsort_momentum_v1").contains(target.get("association"))||!Objects.equals(target.get("track_id"),candidate.get("track_id"))||!"selected".equals(candidate.get("decision")))throw new IllegalArgumentException();
             var representative=SpecialistResult.object(candidate.get("representative"));
             if(!Objects.equals(descriptor.get("frame_id"),representative.get("frame_id"))||!Objects.equals(descriptor.get("evidence_sha256"),representative.get("jpeg_sha256")))throw new IllegalArgumentException();
         }
@@ -160,7 +160,7 @@ public class SpecialistAdmission {
         if(selected.isEmpty()&&candidates.size()!=1)return Map.of();
         for(var candidate:candidates){
             var target=available.get(candidate.get("target_id"));
-            if(target==null||!"vehicle".equals(target.get("object_type"))||!"local_geometry_candidate".equals(target.get("association")))throw new IllegalArgumentException();
+            if(target==null||!"vehicle".equals(target.get("object_type"))||!Set.of("local_geometry_candidate","bytetrack_kalman_v1","ocsort_momentum_v1").contains(target.get("association")))throw new IllegalArgumentException();
             String track=(String)target.get("track_id"),event=eventId((String)descriptor.get("camera_id"),(String)selection.get("scene_run_id"),number(selection.get("media_epoch")),track);
             if(!UUID.fromString(track).toString().equals(track)||!event.equals(candidate.get("event_id"))||!Objects.equals(track,candidate.get("track_id")))throw new IllegalArgumentException();
             String intent=SpecialistResult.text(candidate.get("intent"),40);if(!Set.of("collect_vehicle_passages","plate_query","verify_vehicle").contains(intent))throw new IllegalArgumentException();

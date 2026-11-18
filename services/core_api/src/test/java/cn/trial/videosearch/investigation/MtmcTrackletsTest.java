@@ -31,6 +31,8 @@ class MtmcTrackletsTest {
         var period=(Map<?,?>)item.get("period");assertEquals("relative_media",period.get("clock"));assertNull(period.get("start_time"));assertEquals(1000L,period.get("start_ms"));
         assertEquals(3000L,((Map<?,?>)item.get("representative")).get("media_offset_ms"));
         var locator=(Map<?,?>)item.get("source_locator");assertNull(locator.get("platform_id"));assertNull(locator.get("device_id"));assertEquals(0L,locator.get("media_epoch"));
+        var bound=MtmcTracklets.freeze(anchor,candidate,new EvidenceFusionMtmcStrategy(),600,Map.of("platform_id","wvp-nj-01","device_id","34020000001320000001","channel_id","34020000001310000002","adapter_kind","gb28181_cascade","clock_verified",false));
+        var populated=(Map<?,?>)bound.get("source_locator");assertEquals("wvp-nj-01",populated.get("platform_id"));assertEquals("34020000001310000002",populated.get("channel_id"));assertEquals(false,populated.get("clock_verified"));
     }
     @Test void simultaneouslyVisibleTargetsAreNotRejectedAcrossCameras(){
         Instant start=Instant.parse("2026-11-17T01:00:00Z");

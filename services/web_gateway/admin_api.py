@@ -95,6 +95,33 @@ class ModelBind(BaseModel):
     bindings:ModelBindings
 
 
+class PlatformUpsert(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:UUID
+    expected_revision:int=Field(ge=0,le=100000,strict=True)
+    adapter_kind:Literal['gb28181_cascade','platform_stream']
+    display_name:str=Field(min_length=1,max_length=200)
+    endpoint_ref:str=Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9_.:/-]{1,119}$')
+    media_node:str=Field(default='',max_length=200)
+    clock_state:Literal['unverified','verified']='unverified'
+    clock_offset_ms:int|None=Field(default=None,strict=True)
+    enabled:bool=Field(default=False,strict=True)
+
+
+class PlatformChannelUpsert(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:UUID
+    expected_revision:int=Field(ge=0,le=100000,strict=True)
+    device_id:str=Field(pattern=r'^[A-Za-z0-9_.-]{1,64}$')
+    channel_id:str=Field(pattern=r'^[A-Za-z0-9_.-]{1,64}$')
+    camera_id:str=Field(pattern=r'^[A-Za-z0-9_.-]{1,100}$')
+    channel_name:str=Field(default='',max_length=200)
+    stream_profile:Literal['main','sub','unknown']='unknown'
+    clock_verified:bool=Field(default=False,strict=True)
+    clock_offset_ms:int|None=Field(default=None,strict=True)
+    active:bool=Field(default=True,strict=True)
+
+
 def mount_admin(app,cfg,authenticated,origin_ok):
     hash_slots=threading.BoundedSemaphore(2)
     def encode_password(value):
@@ -131,7 +158,11 @@ def mount_admin(app,cfg,authenticated,origin_ok):
                            'model_provider_unavailable','model_providers_unavailable','model_request_conflict','model_profile_conflict',
                            'model_binding_conflict','model_registry_full','model_profile_unavailable','model_activation_forbidden',
                            'invalid_model_request','model_control_unavailable','invalid_business_request','business_unavailable',
-                           'invalid_model_provider','model_catalog_unavailable','model_catalog_invalid','model_catalog_configuration_changed'}
+                           'invalid_model_provider','model_catalog_unavailable','model_catalog_invalid','model_catalog_configuration_changed',
+                           'platform_unavailable','platform_revision_conflict','platform_mapping_conflict','platform_registry_full',
+                           'platform_clock_unverified','invalid_platform_endpoint','invalid_platform_request','platform_disabled',
+                           'platform_channel_unavailable','platform_channel_disabled','platform_session_limit','platform_session_conflict',
+                           'command_request_conflict'}
                     code=data.get('code') if data.get('code') in codes else 'admin_unavailable'
                     return JSONResponse({'code':code,'detail':'管理操作未完成'},status_code=response.status_code if response.status_code in {400,403,404,409,429} or response.status_code==422 and code=='invalid_module_source' else 503)
                 if path.startswith('/internal/admin/users'):
@@ -211,6 +242,36 @@ def mount_admin(app,cfg,authenticated,origin_ok):
     async def update_camera(camera:str,body:CameraEdit,request:Request):
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',camera): raise HTTPException(422,'点位编号无效')
         return await forward(request,'PUT','/internal/admin/cameras/'+camera,body={'displayName':body.display_name,'locationKey':body.location_key,'aliases':body.aliases,'enabled':body.enabled,'expectedRevision':body.expected_revision})
+
+    @app.get('/api/admin/platforms')
+    async def platforms(request:Request):
+        return await forward(request,'GET','/internal/admin/platforms')
+
+    @app.put('/api/admin/platforms/{platform_id}')
+    async def upsert_platform(platform_id:str,body:PlatformUpsert,request:Request):
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}',platform_id): raise HTTPException(422,'平台编号无效')
+        return await forward(request,'PUT',f'/internal/admin/platforms/{platform_id}',body={
+            'requestId':str(body.request_id),'expectedRevision':body.expected_revision,'adapterKind':body.adapter_kind,
+            'displayName':body.display_name,'endpointRef':body.endpoint_ref,'mediaNode':body.media_node,
+            'clockState':body.clock_state,'clockOffsetMs':body.clock_offset_ms,'enabled':body.enabled})
+
+    @app.get('/api/admin/platforms/{platform_id}/channels')
+    async def platform_channels(platform_id:str,request:Request):
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}',platform_id): raise HTTPException(422,'平台编号无效')
+        return await forward(request,'GET',f'/internal/admin/platforms/{platform_id}/channels')
+
+    @app.put('/api/admin/platforms/{platform_id}/channels')
+    async def upsert_platform_channel(platform_id:str,body:PlatformChannelUpsert,request:Request):
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}',platform_id): raise HTTPException(422,'平台编号无效')
+        return await forward(request,'PUT',f'/internal/admin/platforms/{platform_id}/channels',body={
+            'requestId':str(body.request_id),'expectedRevision':body.expected_revision,'deviceId':body.device_id,
+            'channelId':body.channel_id,'cameraId':body.camera_id,'channelName':body.channel_name,
+            'streamProfile':body.stream_profile,'clockVerified':body.clock_verified,'clockOffsetMs':body.clock_offset_ms,'active':body.active})
+
+    @app.get('/api/admin/platforms/sessions')
+    async def platform_sessions(request:Request,camera:str|None=None):
+        if camera is not None and not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}',camera): raise HTTPException(422,'点位编号无效')
+        return await forward(request,'GET','/internal/admin/platforms/sessions',params={'camera':camera} if camera else None)
 
     @app.get('/api/admin/jobs')
     async def jobs(request:Request,state:str='failed',camera:str | None=None,limit:int=20,after:UUID | None=None):

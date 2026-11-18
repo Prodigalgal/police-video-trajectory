@@ -84,6 +84,8 @@ tests/*
 !tests/test_mtmc_api.py
 !tests/test_reid_models_api.py
 !tests/test_retrieval_metrics.py
+!tests/test_mot_trackers.py
+!tests/test_video_platform_ingress.py
 web/tests/fixtures/
 web/tests/clue-client.test.mjs
 services/core_api/src/test/resources/fixtures/

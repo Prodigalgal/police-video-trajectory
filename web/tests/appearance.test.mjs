@@ -29,6 +29,7 @@ test('目标框仅接受有界可见区域，候选必须绑定图像和向量�
   assert.equal(validBox([0,0,12,12],100,100),true)
   for(const box of [[-1,0,100,100],[0,0,NaN,100],[0,0,11,12]])assert.equal(validBox(box,100,100),false)
   assert.equal(validateAppearance(response(),expected).items.length,1)
+  for(const assoc of ['bytetrack_kalman_v1','ocsort_momentum_v1']){const v=response();v.items[0].period.association=assoc;assert.equal(validateAppearance(v,expected).items[0].period.association,assoc)}
   for(const mutate of [v=>{v.summary.profile_sha256='3'.repeat(64)},v=>{v.items[0].bbox_xyxy=[0,0,2000,100]},v=>{v.items[0].record_version=0},v=>{v.items[0].period.end_ms=400000},v=>{v.items[0].similarity=NaN},v=>{v.next_offset=0;v.has_more=true}]){const value=response();mutate(value);assert.throws(()=>validateAppearance(value,expected),/不一致/)}
 })
 test('图像检索复用有界流式解析，断流不当作成功，英文上游错误不显示',async()=>{

@@ -108,14 +108,15 @@ public class ObservationStore {
             doc.put("frame_id", frame.frameId().toString());
             doc.put("camera_id", cameraId);
             doc.put("target_type", object.objectType());
-            var detected = db.queryForList("SELECT target_id,track_id,class_name,confidence FROM detected_targets WHERE frame_id=? AND observation_ordinal=?", frame.frameId(), ordinal);
+            var detected = db.queryForList("SELECT target_id,track_id,class_name,confidence,association FROM detected_targets WHERE frame_id=? AND observation_ordinal=?", frame.frameId(), ordinal);
             if (!detected.isEmpty()) {
                 var target = detected.getFirst();
                 doc.put("target_id", target.get("target_id").toString());
                 doc.put("track_id", target.get("track_id").toString());
                 doc.put("detector_class", target.get("class_name"));
                 doc.put("detector_confidence", target.get("confidence"));
-                doc.put("association", "local_geometry_candidate");
+                Object assoc = target.get("association");
+                doc.put("association", assoc instanceof String s && !s.isBlank() ? s : "local_geometry_candidate");
             }
             doc.put("bbox_xyxy", object.bboxXyxy());
             doc.put("uncertain_fields", uncertain);

@@ -72,7 +72,8 @@ final class MtmcTracklets {
         else if(first.size()==1&&second.size()==1)relation=first.equals(second)?"matches":"conflicts";
         return new MtmcStrategy.Evidence(candidate.appearance(),matches,conflicts,relation,temporal(anchor,candidate),delta(anchor,candidate),seconds);
     }
-    static Map<String,Object> freeze(Segment anchor,Segment candidate,MtmcStrategy strategy,int seconds){
+    static Map<String,Object> freeze(Segment anchor,Segment candidate,MtmcStrategy strategy,int seconds){return freeze(anchor,candidate,strategy,seconds,Map.of());}
+    static Map<String,Object> freeze(Segment anchor,Segment candidate,MtmcStrategy strategy,int seconds,Map<String,Object> platformLocator){
         var evidence=evidence(anchor,candidate,seconds);var decision=strategy.evaluate(evidence);var chosen=candidate.representative();
         var sightings=new ArrayList<Map<String,Object>>();
         for(var shot:candidate.shots())sightings.add(Map.of("source",shot.hit().source(),"clock",shot.hit().clock(),"similarity",shot.hit().score(),"observation",shot.observation().view(),"plate",shot.plate()));
@@ -89,7 +90,10 @@ final class MtmcTracklets {
         value.put("temporal_relation",evidence.temporalRelation());value.put("delta_seconds",evidence.deltaSeconds());value.put("plate_relation",evidence.plateRelation());
         value.put("attribute_matches",evidence.attributeMatches());value.put("attribute_conflicts",evidence.attributeConflicts());value.put("identity_verified",false);
         value.put("association_kind","cross_camera_candidate");value.put("geography_state","camera_topology_unverified");
-        var locator=new LinkedHashMap<String,Object>();locator.put("task_id",chosen.observation().taskId()==null?null:chosen.observation().taskId().toString());locator.put("scene_run_id",chosen.observation().runId()==null?null:chosen.observation().runId().toString());locator.put("media_epoch",chosen.observation().epoch());locator.put("platform_id",null);locator.put("device_id",null);locator.put("channel_id",null);value.put("source_locator",locator);
+        var locator=new LinkedHashMap<String,Object>();locator.put("task_id",chosen.observation().taskId()==null?null:chosen.observation().taskId().toString());locator.put("scene_run_id",chosen.observation().runId()==null?null:chosen.observation().runId().toString());locator.put("media_epoch",chosen.observation().epoch());
+        locator.put("platform_id",platformLocator==null?null:platformLocator.get("platform_id"));locator.put("device_id",platformLocator==null?null:platformLocator.get("device_id"));locator.put("channel_id",platformLocator==null?null:platformLocator.get("channel_id"));
+        if(platformLocator!=null&&platformLocator.get("adapter_kind")!=null){locator.put("adapter_kind",platformLocator.get("adapter_kind"));locator.put("clock_verified",Boolean.TRUE.equals(platformLocator.get("clock_verified")));}
+        value.put("source_locator",locator);
         return value;
     }
 }

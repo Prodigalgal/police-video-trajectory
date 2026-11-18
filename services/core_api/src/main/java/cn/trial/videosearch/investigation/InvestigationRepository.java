@@ -64,6 +64,21 @@ public class InvestigationRepository {
         var args=new ArrayList<Object>(cameras);args.add(anchor.targetType());args.add(Timestamp.from(anchor.sourceTime().minusSeconds(seconds)));args.add(Timestamp.from(anchor.sourceTime().plusSeconds(seconds)));args.add(Timestamp.from(anchor.sourceTime()));args.add(limit);
         return db.queryForList(SELECT+" AND o.camera_id IN ("+String.join(",",Collections.nCopies(cameras.size(),"?"))+") AND o.target_type=? AND f.source_time_origin='verified' AND f.source_time BETWEEN ? AND ? ORDER BY abs(extract(epoch FROM f.source_time-?::timestamptz)),o.observation_id LIMIT ?",args.toArray()).stream().map(InvestigationRepository::point).toList();
     }
+    public Map<String,Map<String,Object>> platformLocators(Collection<String> cameraIds){
+        if(cameraIds==null||cameraIds.isEmpty())return Map.of();
+        var allowed=cameraIds.stream().filter(scope::mayReadCamera).distinct().sorted().toList();
+        if(allowed.isEmpty())return Map.of();
+        var rows=db.queryForList("SELECT c.camera_id,c.platform_id,c.device_id,c.channel_id,c.stream_profile,c.clock_verified,p.adapter_kind,p.clock_state FROM platform_camera_channels c JOIN video_platforms p ON p.platform_id=c.platform_id WHERE c.active AND p.enabled AND c.camera_id IN ("+String.join(",",Collections.nCopies(allowed.size(),"?"))+")",allowed.toArray());
+        var output=new LinkedHashMap<String,Map<String,Object>>();
+        for(var row:rows){
+            var entry=new LinkedHashMap<String,Object>();
+            entry.put("platform_id",row.get("platform_id"));entry.put("device_id",row.get("device_id"));entry.put("channel_id",row.get("channel_id"));
+            entry.put("adapter_kind",row.get("adapter_kind"));entry.put("stream_profile",row.get("stream_profile"));
+            entry.put("clock_verified",Boolean.TRUE.equals(row.get("clock_verified"))&&"verified".equals(row.get("clock_state")));
+            output.put((String)row.get("camera_id"),Collections.unmodifiableMap(entry));
+        }
+        return Collections.unmodifiableMap(output);
+    }
     @SuppressWarnings("unchecked") private static ObservationPoint point(Map<String,Object> row){
         Map<String,Object> attributes=ObservationStore.indexedAttributes(JSON.readValue((String)row.get("attributes_text"),Map.class),JSON.readValue((String)row.get("uncertain_text"),List.class));
         return new ObservationPoint((UUID)row.get("observation_id"),((Number)row.get("record_version")).longValue(),(UUID)row.get("frame_id"),(String)row.get("camera_id"),(String)row.get("display_name"),(String)row.get("target_type"),(String)row.get("description"),attributes,(UUID)row.get("task_id"),(UUID)row.get("scene_run_id"),number(row.get("media_epoch")),number(row.get("relative_media_ms")),row.get("source_time") instanceof Timestamp time?time.toInstant():null,(UUID)row.get("track_id"),(UUID)row.get("target_id"),(String)row.get("class_name"),(String)row.get("payload_sha256"),decimal(row.get("longitude")),decimal(row.get("latitude")));

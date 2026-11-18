@@ -64,7 +64,7 @@ public class TargetPipeline {
             UUID.fromString(track);
             if(!Set.of("person","bicycle","car","motorcycle","bus","truck").contains(name) ||
                     !("person".equals(name)?"person":"vehicle").equals(kind) ||
-                    !"local_geometry_candidate".equals(target.get("association"))) throw new IllegalArgumentException("invalid target class");
+                    !Set.of("local_geometry_candidate","bytetrack_kalman_v1","ocsort_momentum_v1").contains(target.get("association"))) throw new IllegalArgumentException("invalid target class");
             double score=number(target.get("confidence"));
             if(score<0 || score>1) throw new IllegalArgumentException("invalid score");
             if(!(target.get("bbox_xyxy") instanceof List<?> box) || !(target.get("bbox_normalized") instanceof List<?> normalized) ||

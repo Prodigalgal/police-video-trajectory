@@ -13,6 +13,7 @@ from uuid import UUID, uuid5, NAMESPACE_URL
 import numpy as np
 import cv2
 
+from .mot_trackers import VALID_LOCAL_ASSOCIATIONS
 from .target_quality import target_quality
 
 
@@ -92,7 +93,7 @@ class SpecialistSelector:
             return {**base, 'decision': 'skipped', 'business_state':'not_applicable', 'reasons': ['not_a_vehicle_candidate']}, None
         if target.get('class_name') not in POLICY['plate_classes']:
             return {**base, 'decision': 'skipped', 'business_state':'not_applicable', 'reasons': ['plate_profile_class_unsupported']}, None
-        if target.get('association') != 'local_geometry_candidate':
+        if target.get('association') not in VALID_LOCAL_ASSOCIATIONS:
             return {**base, 'reasons': ['association_unavailable']}, None
         try:
             track = _uuid(target.get('track_id'))
